@@ -1,0 +1,61 @@
+---
+- name: Nginx Deployment - Enterprise IaC Version
+  hosts: load_balancers
+  become: yes
+  
+  tasks:
+    - name: 1. Update apt cache and install required packages
+      apt:
+        name: 
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+          - ufw
+        state: present
+        update_cache: yes
+
+    - name: 2. Synchronize JSON Logging configuration
+      copy:
+        src: ../configs/logging.conf
+        dest: /etc/nginx/conf.d/logging.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: 3. Deploy API Shop server block configuration
+      copy:
+        src: ../configs/api-shop.conf
+        dest: /etc/nginx/sites-available/api-shop.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload Nginx
+
+    - name: 4. Enable site and disable default configuration
+      file:
+        path: /etc/nginx/sites-enabled/{{ item.name }}
+        src: "{{ item.src | default(omit) }}"
+        state: "{{ item.state }}"
+      loop:
+        - { name: 'api-shop.conf', src: '/etc/nginx/sites-available/api-shop.conf', state: 'link' }
+        - { name: 'default', state: 'absent' }
+
+    - name: 5. Security Hardening - Configure UFW Firewall
+      community.general.ufw:
+        rule: allow
+        name: "{{ item }}"
+      loop:
+        - 'Nginx Full'
+        - 'OpenSSH'
+
+    - name: 6. Ensure Nginx service is started and enabled
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
