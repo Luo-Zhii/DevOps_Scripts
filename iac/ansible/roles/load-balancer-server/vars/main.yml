@@ -9,16 +9,25 @@
 nginx_upstreams:
   - name: gitlab
     server: "{{ internal_services.gitlab.host }}:{{ internal_services.gitlab.port }}"
-    domain: "gitlab.{{ domain | default('devops.local') }}"
+    domain: "gitlab.{{ domain | default('luo.io.vn') }}"
   - name: harbor
     server: "{{ internal_services.harbor.host }}:{{ internal_services.harbor.port }}"
-    domain: "registry.{{ domain | default('devops.local') }}"
+    domain: "registry.{{ domain | default('luo.io.vn') }}"
   - name: sonarqube
     server: "{{ internal_services.sonarqube.host }}:{{ internal_services.sonarqube.port }}"
-    domain: "sonar.{{ domain | default('devops.local') }}"
+    domain: "sonar.{{ domain | default('luo.io.vn') }}"
   - name: rancher
     server: "{{ internal_services.rancher.host }}:{{ internal_services.rancher.port }}"
-    domain: "rancher.{{ domain | default('devops.local') }}"
+    domain: "rancher.{{ domain | default('luo.io.vn') }}"
   - name: kibana
     server: "{{ internal_services.elk.host }}:{{ internal_services.elk.kibana_port }}"
-    domain: "kibana.{{ domain | default('devops.local') }}"
+    domain: "kibana.{{ domain | default('luo.io.vn') }}"
+
+  # =========================================================================
+  # ShopNow Frontend — qua K8s Ingress Controller (NodePort 30080)
+  # =========================================================================
+  # Nginx proxy pass đến Ingress Controller, kèm Host header.
+  # Ingress Controller đọc Host: shopnow.luo.io.vn → route đến frontend pod.
+  - name: shopnow-frontend
+    server: "{{ k8s_first_worker_ip }}:30080"
+    domain: "shopnow.luo.io.vn"

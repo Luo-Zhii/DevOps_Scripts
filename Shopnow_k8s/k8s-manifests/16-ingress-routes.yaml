@@ -1,0 +1,111 @@
+---
+# =============================================================================
+# Ingress Routes — Route theo hostname đến ClusterIP Services
+# =============================================================================
+# Tất cả domain ShopNow → CÙNG 1 Ingress Controller (NodePort 30080).
+# Ingress Controller tự parse Host header và route đến đúng service.
+#
+# KHÔNG CẦN expose từng service ra NodePort riêng nữa.
+# Chỉ cần ClusterIP services (đã có sẵn trong các file deployment).
+#
+# DNS: trỏ TẤT CẢ domain dưới đây về Kong EIP.
+# Kong upstream: http://<worker-ip>:30080 (1 upstream duy nhất).
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shopnow-ingress
+  namespace: shopnow
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    # --- ShopNow Frontend (React + Nginx) ---
+    - host: shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: shopnow-frontend
+                port:
+                  number: 80
+
+    # --- Spring Cloud API Gateway (product, cart, user) ---
+    - host: api-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 5860
+
+    # --- Eureka Discovery Dashboard ---
+    - host: discovery-server-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: shopnow-discovery-server-service
+                port:
+                  number: 8761
+
+    # --- Keycloak Identity Provider ---
+    - host: keycloak-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: keycloak
+                port:
+                  number: 8080
+
+    # --- Product Service (direct, bypass Gateway) ---
+    - host: product-service-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: product-service
+                port:
+                  number: 5861
+
+    # --- Shopping Cart Service (direct, bypass Gateway) ---
+    - host: cart-service-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: shopping-cart-service
+                port:
+                  number: 5863
+
+    # --- User Service (direct, bypass Gateway) ---
+    - host: user-service-shopnow.luo.io.vn
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: user-service
+                port:
+                  number: 5865

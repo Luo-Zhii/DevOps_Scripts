@@ -1,7 +1,7 @@
 # =============================================================================
 # Compute Module — main.tf
 # =============================================================================
-# All 16 EC2 instances are defined in a single map and provisioned via
+# All 19 EC2 instances are defined in a single map and provisioned via
 # for_each. This keeps the code DRY while giving every instance its own
 # specific type, disk size, subnet placement, and security group assignment.
 #
@@ -123,6 +123,33 @@ locals {
     }
 
     # =====================================================================
+    # PRIVATE SUBNET — Kubernetes Worker Nodes (chạy application pods)
+    #   - k8s-worker-1,2,3:  Container runtime, chạy ShopNow + infrastructure pods
+    #   - Disk 20GB để chứa container images + ephemeral storage
+    # =====================================================================
+    "k8s-worker-1" = {
+      type      = "t3.medium"
+      disk      = 20
+      subnet    = "private"
+      role      = "k8s-worker"
+      extra_sgs = [var.sg_k8s_workers_id]
+    }
+    "k8s-worker-2" = {
+      type      = "t3.medium"
+      disk      = 20
+      subnet    = "private"
+      role      = "k8s-worker"
+      extra_sgs = [var.sg_k8s_workers_id]
+    }
+    "k8s-worker-3" = {
+      type      = "t3.medium"
+      disk      = 20
+      subnet    = "private"
+      role      = "k8s-worker"
+      extra_sgs = [var.sg_k8s_workers_id]
+    }
+
+    # =====================================================================
     # PRIVATE SUBNET — Storage HA Cluster (GlusterFS replicated)
     #   - storage-master-1,2,3:  GlusterFS bricks + NFS VIP failover
     # =====================================================================
@@ -168,6 +195,7 @@ resource "aws_instance" "this" {
     each.value.role == "load-balancer" ? [var.sg_lb_id] : [],
     each.value.role == "teleport" ? [var.sg_teleport_id] : [],
     each.value.role == "kong-gateway" ? [var.sg_kong_id] : [],
+    each.value.role == "k8s-worker" ? [var.sg_k8s_workers_id] : [],
     each.value.extra_sgs,
   )
 

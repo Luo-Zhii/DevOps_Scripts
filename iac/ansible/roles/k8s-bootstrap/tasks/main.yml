@@ -1,0 +1,309 @@
+---
+# =============================================================================
+# K8s Bootstrap Role — tasks/main.yml
+# =============================================================================
+# Chạy trên: k8s-master-1,2,3 (control-plane) + k8s-worker-1,2,3 (worker)
+#
+# Luồng triển khai:
+#   Step 1: Cài containerd trên TẤT CẢ 6 node
+#   Step 2: Cài kubeadm/kubelet/kubectl trên TẤT CẢ 6 node
+#   Step 3: kubeadm init trên master-1 — tạo cluster
+#   Step 4: kubeadm join 2 master còn lại vào control-plane
+#   Step 5: Cài Calico CNI từ master-1
+#   Step 6: kubeadm join 3 worker node
+#
+# Idempotent: tất cả task đều dùng creates/check guard để chạy lại an toàn.
+# =============================================================================
+
+# =========================================================================
+# STEP 1: Cài đặt containerd (container runtime) — TẤT CẢ NODES
+# =========================================================================
+- name: Cài đặt các gói phụ thuộc cho containerd
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: yes
+  tags: [k8s, containerd]
+
+- name: Thêm Docker GPG key (containerd nằm trong Docker repo)
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  tags: [k8s, containerd]
+
+- name: Thêm Docker APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    filename: docker
+    update_cache: yes
+  tags: [k8s, containerd]
+
+- name: Cài đặt containerd
+  ansible.builtin.apt:
+    name: containerd.io
+    state: present
+  tags: [k8s, containerd]
+  notify: restart containerd
+
+- name: Tạo thư mục cấu hình containerd
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+  tags: [k8s, containerd]
+
+- name: Tạo containerd config mặc định (nếu chưa có)
+  ansible.builtin.shell: |
+    containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml.orig
+  tags: [k8s, containerd]
+
+- name: Deploy containerd config với SystemdCgroup=true
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: /etc/containerd/config.toml
+    mode: "0644"
+  notify: restart containerd
+  tags: [k8s, containerd]
+
+- name: Khởi động và enable containerd
+  ansible.builtin.service:
+    name: containerd
+    state: started
+    enabled: yes
+  tags: [k8s, containerd]
+
+# =========================================================================
+# STEP 2: Cài kubeadm, kubelet, kubectl — TẤT CẢ NODES
+# =========================================================================
+- name: Thêm Kubernetes APT repository key
+  ansible.builtin.apt_key:
+    url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version | replace('.', '') }}/deb/Release.key
+    state: present
+  tags: [k8s, packages]
+
+- name: Thêm Kubernetes APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version | replace('.', '') }}/deb/ /"
+    state: present
+    filename: kubernetes
+    update_cache: yes
+  tags: [k8s, packages]
+
+- name: Cài đặt kubeadm, kubelet, kubectl
+  ansible.builtin.apt:
+    name:
+      - "kubeadm={{ kubernetes_version }}.*"
+      - "kubelet={{ kubernetes_version }}.*"
+      - "kubectl={{ kubernetes_version }}.*"
+    state: present
+    allow_downgrade: yes
+  tags: [k8s, packages]
+
+- name: Hold kubeadm/kubelet/kubectl (ngăn auto-upgrade gây break cluster)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubeadm
+    - kubelet
+    - kubectl
+  tags: [k8s, packages]
+
+- name: Enable kubelet (sẽ start sau khi kubeadm init/join thành công)
+  ansible.builtin.service:
+    name: kubelet
+    enabled: yes
+  tags: [k8s, packages]
+
+# =========================================================================
+# STEP 3: kubeadm init — CHỈ chạy trên k8s-master-1
+# =========================================================================
+- name: Kiểm tra xem cluster đã được init chưa
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: cluster_initialized
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, init]
+
+- name: Deploy kubeadm configuration lên master-1
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: /etc/kubernetes/kubeadm-config.yaml
+    mode: "0644"
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - not cluster_initialized.stat.exists
+  tags: [k8s, init]
+
+- name: Pre-flight: kubeadm init phase preflight
+  ansible.builtin.command:
+    cmd: kubeadm init phase preflight --config /etc/kubernetes/kubeadm-config.yaml
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - not cluster_initialized.stat.exists
+  changed_when: false
+  tags: [k8s, init]
+
+- name: kubeadm init — khởi tạo cluster (master-1)
+  ansible.builtin.command:
+    cmd: >-
+      kubeadm init
+      --config /etc/kubernetes/kubeadm-config.yaml
+      --upload-certs
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - not cluster_initialized.stat.exists
+  register: kubeadm_init_result
+  tags: [k8s, init]
+
+- name: Tạo thư mục .kube cho root user
+  ansible.builtin.file:
+    path: /root/.kube
+    state: directory
+    mode: "0750"
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, init]
+
+- name: Copy admin.conf → /root/.kube/config (kubectl dùng được ngay)
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: "0600"
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, init]
+
+# =========================================================================
+# STEP 4: Tạo join tokens — CHỈ trên master-1, lưu vào biến facts
+# =========================================================================
+- name: Tạo certificate key cho control-plane join
+  ansible.builtin.command:
+    cmd: kubeadm init phase upload-certs --upload-certs
+  register: cert_key_output
+  changed_when: false
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - kubeadm_init_result is defined and kubeadm_init_result.changed
+  tags: [k8s, join]
+
+- name: Lấy certificate key từ output
+  ansible.builtin.set_fact:
+    cert_key: "{{ cert_key_output.stdout_lines[-1] }}"
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - cert_key_output.stdout_lines is defined
+  tags: [k8s, join]
+
+- name: Tạo bootstrap token cho worker join
+  ansible.builtin.command:
+    cmd: kubeadm token create --print-join-command
+  register: worker_join_cmd
+  changed_when: false
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, join]
+
+- name: Tạo bootstrap token cho control-plane join (kèm certificate key)
+  ansible.builtin.command:
+    cmd: >-
+      kubeadm token create --print-join-command
+      --certificate-key {{ cert_key | default('') }}
+  register: cp_join_cmd
+  changed_when: false
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, join]
+
+# =========================================================================
+# STEP 5: Join các control-plane node còn lại — master-2, master-3
+# =========================================================================
+- name: Join control-plane node vào cluster
+  ansible.builtin.shell: |
+    {{ hostvars[ansible_play_hosts[0]]['cp_join_cmd']['stdout'] }}
+  args:
+    creates: /etc/kubernetes/admin.conf
+  when:
+    - inventory_hostname != ansible_play_hosts[0]
+    - "'k8s_masters' in group_names"
+  tags: [k8s, join]
+
+- name: Copy admin.conf cho các control-plane node còn lại
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: yes
+    mode: "0600"
+  when:
+    - inventory_hostname != ansible_play_hosts[0]
+    - "'k8s_masters' in group_names"
+  tags: [k8s, join]
+
+# =========================================================================
+# STEP 6: Cài Calico CNI — CHỈ trên master-1, sau khi cluster đã sẵn sàng
+# =========================================================================
+- name: Cài Calico Tigera Operator
+  ansible.builtin.command:
+    cmd: >-
+      kubectl create -f
+      https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+  register: calico_operator
+  changed_when: "'created' in calico_operator.stdout or 'configured' in calico_operator.stdout"
+  failed_when:
+    - calico_operator.rc != 0
+    - "'already exists' not in calico_operator.stderr"
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, cni]
+
+- name: Deploy Calico custom resources (Installation + APIServer)
+  ansible.builtin.command:
+    cmd: >-
+      kubectl create -f
+      https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/custom-resources.yaml
+  register: calico_cr
+  changed_when: "'created' in calico_cr.stdout or 'configured' in calico_cr.stdout"
+  failed_when:
+    - calico_cr.rc != 0
+    - "'already exists' not in calico_cr.stderr"
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, cni]
+
+- name: Chờ Calico pods sẵn sàng
+  ansible.builtin.command:
+    cmd: kubectl wait --for=condition=Ready pods --all -n calico-system --timeout=180s
+  register: calico_wait
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [k8s, cni]
+
+# =========================================================================
+# STEP 7: Join worker nodes — k8s-worker-1,2,3
+# =========================================================================
+- name: Join worker node vào cluster
+  ansible.builtin.shell: |
+    {{ hostvars[ansible_play_hosts[0]]['worker_join_cmd']['stdout'] }}
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+  when: "'k8s_workers' in group_names"
+  tags: [k8s, join]
+
+# =========================================================================
+# STEP 8: Xóa taint trên control-plane để schedule pods (nếu muốn)
+# =========================================================================
+# Mặc định control-plane node không schedule workload pods.
+# Đối với môi trường dev, có thể bỏ taint để tận dụng tài nguyên.
+# Bỏ comment dòng dưới nếu muốn:
+#
+# - name: Cho phép schedule pods trên control-plane nodes (dev mode)
+#   ansible.builtin.command:
+#     cmd: kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+#   changed_when: false
+#   failed_when: false
+#   when: inventory_hostname == ansible_play_hosts[0]
+#   tags: [k8s, never]

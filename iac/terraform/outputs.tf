@@ -38,12 +38,12 @@ output "load_balancer_public_ip" {
 }
 
 output "teleport_public_ip" {
-  description = "Public IP của Teleport node — trỏ teleport.devops.local vào đây"
+  description = "Public IP của Teleport node — trỏ teleport.luo.io.vn vào đây"
   value       = module.compute.teleport_public_ip
 }
 
 output "kong_gateway_public_ip" {
-  description = "Public IP của Kong API Gateway — trỏ api.devops.local vào đây"
+  description = "Public IP của Kong API Gateway — trỏ api.luo.io.vn vào đây"
   value       = module.compute.kong_public_ip
 }
 
@@ -98,6 +98,11 @@ output "ansible_inventory_elk" {
 output "ansible_inventory_k8s_masters" {
   description = "K8s masters for Ansible [k8s_masters] group"
   value       = module.compute.k8s_masters
+}
+
+output "ansible_inventory_k8s_workers" {
+  description = "K8s workers for Ansible [k8s_workers] group"
+  value       = module.compute.k8s_workers
 }
 
 output "ansible_inventory_storage_nodes" {

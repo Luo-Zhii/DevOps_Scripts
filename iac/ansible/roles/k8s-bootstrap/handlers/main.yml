@@ -1,0 +1,16 @@
+---
+# =============================================================================
+# K8s Bootstrap Role — handlers/main.yml
+# =============================================================================
+
+- name: restart containerd
+  ansible.builtin.service:
+    name: containerd
+    state: restarted
+  when: ansible_facts.packages['containerd.io'] is defined
+
+- name: restart kubelet
+  ansible.builtin.service:
+    name: kubelet
+    state: restarted
+  when: ansible_facts.packages['kubelet'] is defined

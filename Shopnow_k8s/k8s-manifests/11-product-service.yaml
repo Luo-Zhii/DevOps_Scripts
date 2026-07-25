@@ -1,0 +1,72 @@
+---
+# =============================================================================
+# Product Service Deployment + Service
+# =============================================================================
+# API: /api/product/** — quản lý sản phẩm (CRUD)
+# Database: PostgreSQL (postgres.shopnow.svc.cluster.local:5432)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: shopnow
+  labels:
+    app: product-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+        - name: product-service
+          image: harbor-server/techcareer/product-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5861
+              protocol: TCP
+          env:
+            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              value: "http://shopnow-discovery-server-service:8761/eureka/"
+            - name: SPRING_CONFIG_IMPORT
+              value: "configserver:http://config-server.shopnow.svc.cluster.local:5859"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres.shopnow.svc.cluster.local:5432/postgres?useSSL=false"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+  namespace: shopnow
+  labels:
+    app: product-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5861
+      targetPort: 5861
+      protocol: TCP
+      name: http
+  selector:
+    app: product-service

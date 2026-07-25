@@ -1,0 +1,127 @@
+---
+# =============================================================================
+# Keycloak 23.0.3 Deployment + Service
+# =============================================================================
+# Realm được import từ ConfigMap mount vào /opt/keycloak/data/import/
+# Keycloak chạy ở chế độ dev (start-dev --import-realm)
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-config
+  namespace: shopnow
+data:
+  realm-export.json: |
+    {
+      "id": "java-microservice-realm",
+      "realm": "java-microservice-realm",
+      "enabled": true,
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "accessTokenLifespan": 300,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 36000,
+      "defaultSignatureAlgorithm": "RS256",
+      "clients": [
+        {
+          "clientId": "spring-cloud-client",
+          "enabled": true,
+          "secret": "AJufwN1eof8P5Gga5Y9atCFqdMuZEuKd",
+          "serviceAccountsEnabled": true,
+          "publicClient": false,
+          "protocol": "openid-connect",
+          "directAccessGrantsEnabled": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false
+        }
+      ]
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: shopnow
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:23.0.3
+          args: ["start-dev", "--import-realm"]
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: DB_VENDOR
+              value: "MYSQL"
+            - name: DB_ADDR
+              value: "keycloak-mysql.shopnow.svc.cluster.local"
+            - name: DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_DATABASE
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+            - name: KEYCLOAK_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin-secret
+                  key: KEYCLOAK_ADMIN
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin-secret
+                  key: KEYCLOAK_ADMIN_PASSWORD
+          volumeMounts:
+            - name: realm-import
+              mountPath: /opt/keycloak/data/import/
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+      volumes:
+        - name: realm-import
+          configMap:
+            name: keycloak-realm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: shopnow
+  labels:
+    app: keycloak
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: keycloak

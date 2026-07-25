@@ -1,0 +1,71 @@
+---
+# =============================================================================
+# ShopNow Frontend (React + Nginx) Deployment + Service
+# =============================================================================
+# ClusterIP Service:   port 80 — internal access
+# NodePort Service:     port 30002 → 80 — cho Nginx LB truy cập từ DMZ
+#
+# Frontend gọi API qua: http://api-shopnow.luo.io.vn/api/
+# → Kong EIP → Kong route → K8s Worker NodePort 30001 → Spring Cloud Gateway
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopnow-frontend
+  namespace: shopnow
+  labels:
+    app: shopnow-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shopnow-frontend
+  template:
+    metadata:
+      labels:
+        app: shopnow-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: harbor-server/techcareer/shopnow-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+---
+# ClusterIP Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopnow-frontend
+  namespace: shopnow
+  labels:
+    app: shopnow-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: shopnow-frontend

@@ -1,0 +1,144 @@
+label {
+  display: block;
+  margin-top: 10px;
+}
+
+.card-container.cardLogin {
+  max-width: 400px;
+  margin: 50px auto;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.cardLogin {
+  background-color: #f7f7f7;
+  padding: 20px 25px 30px;
+  margin: 0 auto 25px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.profile-img-card {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 20px;
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Ensure the image maintains its aspect ratio */
+  border: 2px solid #3498db;
+  /* Blue border color */
+}
+
+.list {
+  text-align: left;
+  max-width: 750px;
+  margin: auto;
+}
+
+.submit-form {
+  max-width: 400px;
+  margin: auto;
+}
+
+.edit-form {
+  max-width: 400px;
+  margin: auto;
+}
+
+.cart-title {
+  font-size: 1.5rem;
+}
+
+.cart-container {
+  background-color: #f8f9fa;
+  border: 1px solid #ced4da;
+  padding: 10px;
+  border-radius: 5px;
+  height: fit-content;
+}
+
+.cart-item {
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.total-price-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 15px;
+  padding: 10px;
+  border: 1px solid #ced4da;
+}
+
+.total-price {
+  font-weight: bold;
+  color: #007bff;
+}
+
+.product-card:hover {
+  border-color: #0080ff;
+  cursor: pointer;
+}
+
+.styled-hr {
+  width: 100%;
+  margin-top: 0px;
+}
+
+/* About PAGE */
+.aboutCard {
+  background: #eee;
+  border: none;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.aboutCard:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background-color: #0080ff6b;
+  transform: scaleY(1);
+  transition: all 0.5s;
+  transform-origin: bottom
+}
+
+.aboutCard:after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background-color: #0080ff;
+  transform: scaleY(0);
+  transition: all 0.5s;
+  transform-origin: bottom
+}
+
+.aboutCard:hover::after {
+  transform: scaleY(1);
+}
+
+.aboutfonts {
+  font-size: 14px;
+}
+
+.about-social-list {
+  display: flex;
+  list-style: none;
+  justify-content: center;
+  padding: 10px;
+  color: #0080ff;
+  font-size: 19px;
+}

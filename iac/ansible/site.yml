@@ -11,7 +11,7 @@
 # =============================================================================
 
 # =========================================================================
-# PHASE 0: Bootstrap — chạy trên TẤT CẢ 16 servers
+# PHASE 0: Bootstrap — chạy trên TẤT CẢ 19 servers
 # =========================================================================
 - name: "[ALL] Bootstrap cơ bản cho tất cả server (packages, NTP, kernel tuning)"
   hosts: all
@@ -78,11 +78,11 @@
     - elk
 
 # =========================================================================
-# PHASE 3: Kubernetes HA Control-Plane (v1.30)
+# PHASE 3: Kubernetes Cluster Bootstrap (v1.30) — 3 masters + 3 workers
 # =========================================================================
 
-# --- k8s-master-1, k8s-master-2, k8s-master-3 ---
-- name: "[K8s Masters] Chuẩn bị Kubernetes control-plane nodes"
+# --- k8s-master-1,2,3: Cài containerd + kubeadm + init/join control-plane ---
+- name: "[K8s Masters] Bootstrap Kubernetes control-plane (containerd + kubeadm + Calico)"
   hosts: k8s_masters
   become: yes
   roles:
@@ -107,6 +107,87 @@
           overlay
           br_netfilter
       tags: [k8s, kernel]
+
+    - name: Bật kernel modules ngay lập tức
+      ansible.builtin.command: modprobe {{ item }}
+      loop:
+        - overlay
+        - br_netfilter
+      changed_when: false
+      tags: [k8s, kernel]
+
+    - name: Cấu hình sysctl cho K8s networking
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+      ignore_errors: yes
+      tags: [k8s, kernel]
+
+  roles:
+    - role: k8s-bootstrap
+
+# --- k8s-worker-1,2,3: Cài containerd + kubeadm join ---
+- name: "[K8s Workers] Join worker nodes vào cluster (containerd + kubeadm join)"
+  hosts: k8s_workers
+  become: yes
+  roles:
+    - ufw
+  tasks:
+    - name: Tắt swap
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+      tags: [k8s, swap]
+
+    - name: Xóa swap khỏi /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^.*swap.*$'
+        state: absent
+      tags: [k8s, swap]
+
+    - name: Load kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+      tags: [k8s, kernel]
+
+    - name: Bật kernel modules ngay lập tức
+      ansible.builtin.command: modprobe {{ item }}
+      loop:
+        - overlay
+        - br_netfilter
+      changed_when: false
+      tags: [k8s, kernel]
+
+    - name: Cấu hình sysctl cho K8s networking
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
+        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+        - { key: "net.ipv4.ip_forward", value: "1" }
+      ignore_errors: yes
+      tags: [k8s, kernel]
+
+    - name: Cài đặt glusterfs-client (cần cho GlusterFS PersistentVolume)
+      ansible.builtin.apt:
+        name: glusterfs-client
+        state: present
+      tags: [k8s, glusterfs]
+
+  roles:
+    - role: k8s-bootstrap
 
 # =========================================================================
 # PHASE 4: Storage HA Cluster

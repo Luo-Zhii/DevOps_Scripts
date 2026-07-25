@@ -1,0 +1,11 @@
+---
+# =============================================================================
+# ShopNow Namespace
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shopnow
+  labels:
+    name: shopnow
+    app: shopnow-ecommerce

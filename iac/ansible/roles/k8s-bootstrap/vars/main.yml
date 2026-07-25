@@ -1,0 +1,25 @@
+---
+# =============================================================================
+# K8s Bootstrap Role — vars/main.yml
+# =============================================================================
+# Biến cấu hình cho Kubernetes cluster.
+#   - Ca 3 control-plane node + 3 worker node
+#   - Container runtime: containerd
+#   - CNI plugin: Calico Tigera Operator
+# =============================================================================
+
+kubernetes_version: "1.30"
+containerd_version: "1.7"
+
+# Pod network CIDR — Calico default
+pod_network_cidr: "192.168.0.0/16"
+
+# Service CIDR
+service_cidr: "10.96.0.0/12"
+
+# Calico Tigera Operator version
+calico_version: "v3.28.0"
+
+# Control-plane endpoint — IP của k8s-master-1 (node đầu tiên được init)
+# Các node khác sẽ join vào IP này trên port 6443
+control_plane_endpoint: "{{ hostvars[groups['k8s_masters'][0]]['ansible_host'] }}"

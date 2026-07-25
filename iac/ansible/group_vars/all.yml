@@ -28,6 +28,11 @@ internal_services:
     es_port: 9200
 
 # -----------------------------------------------------------------------------
+# Kubernetes worker nodes — dùng bởi Kong & Nginx để forward đến K8s NodePort
+# -----------------------------------------------------------------------------
+k8s_first_worker_ip: "{{ hostvars[groups['k8s_workers'][0]]['ansible_host'] | default('10.0.2.101') }}"
+
+# -----------------------------------------------------------------------------
 # Kong Gateway configuration
 # -----------------------------------------------------------------------------
 kong_db_password: "KongStr0ngP@ss"  # Đổi password này trước khi deploy production

@@ -1,0 +1,83 @@
+---
+# =============================================================================
+# User Service Deployment + Service
+# =============================================================================
+# API: /api/user/** — đăng ký, đăng nhập, quản lý tài khoản
+# JWT auth: gọi Keycloak để lấy token (client_credentials grant)
+# Gọi shopping-cart-service để dọn cart khi xóa user
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: shopnow
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: harbor-server/techcareer/user-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5865
+              protocol: TCP
+          env:
+            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              value: "http://shopnow-discovery-server-service:8761/eureka/"
+            - name: SPRING_CONFIG_IMPORT
+              value: "configserver:http://config-server.shopnow.svc.cluster.local:5859"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres.shopnow.svc.cluster.local:5432/postgres?useSSL=false"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: JWT_ISSUER_URI
+              value: "http://keycloak.shopnow.svc.cluster.local:8080/realms/java-microservice-realm/protocol/openid-connect/token"
+            - name: JWT_CLIENT_ID
+              value: "spring-cloud-client"
+            - name: JWT_CLIENT_SECRET
+              value: "AJufwN1eof8P5Gga5Y9atCFqdMuZEuKd"
+            - name: JWT_GRANT_TYPE
+              value: "client_credentials"
+            - name: JWT_SCOPE
+              value: "openid offline_access"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: shopnow
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5865
+      targetPort: 5865
+      protocol: TCP
+      name: http
+  selector:
+    app: user-service

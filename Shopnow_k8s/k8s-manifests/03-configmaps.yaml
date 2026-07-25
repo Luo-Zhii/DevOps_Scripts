@@ -1,0 +1,82 @@
+---
+# =============================================================================
+# ShopNow ConfigMaps
+# =============================================================================
+# Spring Cloud Config files — mỗi file YAML là 1 key trong ConfigMap
+# Các ConfigMap này được mount vào config-server container
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spring-cloud-config
+  namespace: shopnow
+data:
+  # API Gateway config (keep minimal — routes defined in application.properties)
+  api-gateway.yaml: |
+    eureka:
+      instance:
+      client:
+        service-url:
+          defaultZone: http://shopnow-discovery-server-service:8761/eureka/
+
+  # Product Service config
+  product-service.yaml: |
+    eureka:
+      instance:
+      client:
+        service-url:
+          defaultZone: http://shopnow-discovery-server-service:8761/eureka/
+    spring:
+      datasource:
+        url: jdbc:postgresql://postgres.shopnow.svc.cluster.local:5432/postgres?useSSL=false
+        username: postgres
+        password: admin
+      jpa:
+        hibernate:
+          ddl-auto: update
+        show-sql: true
+        properties:
+          hibernate:
+            format-sql: true
+
+  # Shopping Cart Service config
+  shopping-cart-service.yaml: |
+    eureka:
+      instance:
+      client:
+        service-url:
+          defaultZone: http://shopnow-discovery-server-service:8761/eureka/
+    spring:
+      datasource:
+        url: jdbc:postgresql://postgres.shopnow.svc.cluster.local:5432/postgres?useSSL=false
+        username: postgres
+        password: admin
+      jpa:
+        hibernate:
+          ddl-auto: update
+        show-sql: true
+        properties:
+          hibernate:
+            format-sql: true
+
+  # User Service config
+  user-service.yaml: |
+    eureka:
+      instance:
+      client:
+        service-url:
+          defaultZone: http://shopnow-discovery-server-service:8761/eureka/
+    spring:
+      datasource:
+        url: jdbc:postgresql://postgres.shopnow.svc.cluster.local:5432/postgres?useSSL=false
+        username: postgres
+        password: admin
+      jpa:
+        hibernate:
+          ddl-auto: update
+        show-sql: true
+        properties:
+          hibernate:
+            format-sql: true

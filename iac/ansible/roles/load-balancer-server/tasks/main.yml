@@ -88,7 +88,7 @@
 #       --staging
 #       -d {{ item.domain }}
 #       --non-interactive --agree-tos
-#       --email admin@{{ domain | default('devops.local') }}
+#       --email admin@{{ domain | default('luo.io.vn') }}
 #   loop: "{{ nginx_upstreams }}"
 #   creates: "/etc/letsencrypt/live/{{ item.domain }}/fullchain.pem"
 #   tags: [nginx, certbot, ssl]

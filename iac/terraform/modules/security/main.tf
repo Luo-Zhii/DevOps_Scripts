@@ -168,6 +168,16 @@ resource "aws_vpc_security_group_ingress_rule" "k8s_comp" {
   to_port           = 10259
 }
 
+# NodePort range — cho Kong/Nginx từ DMZ truy cập service K8s
+resource "aws_vpc_security_group_ingress_rule" "k8s_nodeports" {
+  security_group_id = aws_security_group.k8s_masters.id
+  description       = "K8s NodePort range for external access to services"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = 30000
+  to_port           = 32767
+}
+
 resource "aws_vpc_security_group_egress_rule" "k8s_masters_out" {
   security_group_id = aws_security_group.k8s_masters.id
   description       = "Allow all outbound traffic"
@@ -332,6 +342,46 @@ resource "aws_vpc_security_group_ingress_rule" "elk_logstash_beats" {
 resource "aws_vpc_security_group_egress_rule" "elk_out" {
   security_group_id = aws_security_group.elk.id
   description       = "Allow all outbound traffic"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+# -----------------------------------------------------------------------------
+# SG-7: K8s Workers — Kubelet + NodePort + pod-to-pod communication
+# -----------------------------------------------------------------------------
+resource "aws_security_group" "k8s_workers" {
+  name        = "${var.project_name}-sg-k8s-workers"
+  description = "Kubernetes worker nodes — kubelet + NodePort services"
+  vpc_id      = var.vpc_id
+
+  tags = {
+    Name        = "${var.project_name}-sg-k8s-workers"
+    Environment = var.environment
+    Role        = "k8s-worker"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "k8s_worker_kubelet" {
+  security_group_id = aws_security_group.k8s_workers.id
+  description       = "Kubelet API"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = 10250
+  to_port           = 10250
+}
+
+resource "aws_vpc_security_group_ingress_rule" "k8s_worker_nodeports" {
+  security_group_id = aws_security_group.k8s_workers.id
+  description       = "NodePort services — Kong & Nginx truy cập từ DMZ qua private IP"
+  cidr_ipv4         = var.vpc_cidr
+  ip_protocol       = "tcp"
+  from_port         = 30000
+  to_port           = 32767
+}
+
+resource "aws_vpc_security_group_egress_rule" "k8s_workers_out" {
+  security_group_id = aws_security_group.k8s_workers.id
+  description       = "Allow all outbound traffic (Harbor pull, apt, etc.)"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }

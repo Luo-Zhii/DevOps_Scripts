@@ -81,6 +81,20 @@
   tags: [ufw, k8s]
 
 # -----------------------------------------------------------------------------
+# K8s Workers — Kubelet + NodePort range
+# -----------------------------------------------------------------------------
+- name: Allow Kubernetes worker node ports
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "10250"         # Kubelet API
+    - "30000:32767"   # NodePort range (Kong & Nginx truy cập service K8s)
+  when: "'k8s_workers' in group_names"
+  tags: [ufw, k8s]
+
+# -----------------------------------------------------------------------------
 # Storage Nodes — GlusterFS daemon + volume ports
 # -----------------------------------------------------------------------------
 - name: Allow GlusterFS ports on storage nodes
