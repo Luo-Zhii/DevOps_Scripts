@@ -1,0 +1,94 @@
+---
+# =============================================================================
+# Nginx Role — tasks/main.yml
+# =============================================================================
+# Idempotently installs and configures Nginx as a reverse proxy for internal
+# services. Every task includes a "creates"/"state" guard so re-running the
+# playbook is safe.
+# =============================================================================
+
+- name: Add Nginx official APT repository key
+  ansible.builtin.apt_key:
+    url: https://nginx.org/keys/nginx_signing.key
+    state: present
+  tags: [nginx, repo]
+
+- name: Add Nginx official APT repository (mainline)
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://nginx.org/packages/mainline/ubuntu/ jammy nginx"
+    state: present
+    filename: nginx
+    update_cache: yes
+  tags: [nginx, repo]
+
+- name: Install Nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+  notify: restart nginx
+  tags: [nginx, install]
+
+- name: Remove default Nginx config (we ship our own)
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+  tags: [nginx, config]
+
+- name: Create Certbot webroot directory (for Let's Encrypt HTTP challenges)
+  ansible.builtin.file:
+    path: /var/www/certbot
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0755"
+  tags: [nginx, certbot]
+
+- name: Deploy Nginx configuration from Jinja2 template
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+    # Validate the config before applying — prevents broken deploys
+    validate: /usr/sbin/nginx -t -c %s
+  notify: restart nginx
+  tags: [nginx, config]
+
+- name: Ensure Nginx is enabled and running
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: yes
+  tags: [nginx, service]
+
+# -----------------------------------------------------------------------------
+# Certbot (Let's Encrypt) — commented out until DNS is pointed at the EIP
+# -----------------------------------------------------------------------------
+# Uncomment the block below after DNS A records are configured:
+#
+# - name: Install Certbot via Snap (Ubuntu recommended method)
+#   ansible.builtin.snap:
+#     name: certbot
+#     classic: yes
+#   tags: [nginx, certbot]
+#
+# - name: Ensure certbot command is available via PATH symlink
+#   ansible.builtin.file:
+#     src: /snap/bin/certbot
+#     dest: /usr/bin/certbot
+#     state: link
+#   tags: [nginx, certbot]
+#
+# - name: Obtain SSL certificates (staging first, then remove --staging)
+#   ansible.builtin.command:
+#     cmd: >-
+#       certbot certonly --webroot -w /var/www/certbot
+#       --staging
+#       -d {{ item.domain }}
+#       --non-interactive --agree-tos
+#       --email admin@{{ domain | default('devops.local') }}
+#   loop: "{{ nginx_upstreams }}"
+#   creates: "/etc/letsencrypt/live/{{ item.domain }}/fullchain.pem"
+#   tags: [nginx, certbot, ssl]

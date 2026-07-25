@@ -1,0 +1,121 @@
+---
+# =============================================================================
+# site.yml — Master Playbook cho DevOps Platform
+# =============================================================================
+# Chạy full:        ansible-playbook site.yml
+# Chạy 1 nhóm:      ansible-playbook site.yml --limit load_balancers
+# Chạy 1 server:    ansible-playbook site.yml --limit gitlab-server
+#
+# Cấu trúc thư mục role:  roles/<tên-server>/tasks/main.yml
+#   Mỗi role tương ứng với 1 server/nhóm server cụ thể, không đặt tên chung chung.
+# =============================================================================
+
+# =========================================================================
+# PHASE 0: Bootstrap — chạy trên TẤT CẢ 16 servers
+# =========================================================================
+- name: "[ALL] Bootstrap cơ bản cho tất cả server (packages, NTP, kernel tuning)"
+  hosts: all
+  become: yes
+  roles:
+    - common
+
+# =========================================================================
+# PHASE 1: Public DMZ — Internet-facing servers
+# =========================================================================
+
+# --- load-balancer-server: Nginx Reverse Proxy ---
+- name: "[load-balancer-server] Cài đặt Nginx + UFW để reverse proxy cho internal services"
+  hosts: load_balancers
+  become: yes
+  roles:
+    - ufw
+    - load-balancer-server
+
+# --- teleport: Access Management ---
+- name: "[teleport] Cài đặt UFW + chuẩn bị Teleport Access Management"
+  hosts: teleport
+  become: yes
+  roles:
+    - ufw
+
+# --- kong-gateway: API Gateway ---
+- name: "[kong-gateway] Cài đặt Kong API Gateway + Postgres + UFW"
+  hosts: kong_gateway
+  become: yes
+  roles:
+    - ufw
+    - kong-gateway
+
+# =========================================================================
+# PHASE 2: Private Subnet — Platform Tools
+# =========================================================================
+
+# --- gitlab-server, harbor-server, sonarqube-server, rancher-server, dev-server ---
+- name: "[Platform Tools] Cài đặt Docker prerequisites + UFW"
+  hosts: platform_tools
+  become: yes
+  roles:
+    - ufw
+  tasks:
+    - name: Cài đặt Docker engine prerequisites
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - gnupg
+        state: present
+        update_cache: yes
+      tags: [docker, prereq]
+
+# --- elk: Elasticsearch + Logstash + Kibana ---
+- name: "[elk] Cài đặt ELK Stack (Elasticsearch + Logstash + Kibana)"
+  hosts: elk
+  become: yes
+  roles:
+    - ufw
+    - elk
+
+# =========================================================================
+# PHASE 3: Kubernetes HA Control-Plane (v1.30)
+# =========================================================================
+
+# --- k8s-master-1, k8s-master-2, k8s-master-3 ---
+- name: "[K8s Masters] Chuẩn bị Kubernetes control-plane nodes"
+  hosts: k8s_masters
+  become: yes
+  roles:
+    - ufw
+  tasks:
+    - name: Tắt swap (yêu cầu bắt buộc của kubeadm)
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+      tags: [k8s, swap]
+
+    - name: Xóa swap khỏi /etc/fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '^.*swap.*$'
+        state: absent
+      tags: [k8s, swap]
+
+    - name: Load kernel modules cho K8s (overlay + br_netfilter)
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+      tags: [k8s, kernel]
+
+# =========================================================================
+# PHASE 4: Storage HA Cluster
+# =========================================================================
+
+# --- storage-master-1, storage-master-2, storage-master-3 ---
+- name: "[Storage Nodes] Deploy GlusterFS replicated volume"
+  hosts: storage_nodes
+  become: yes
+  serial: 1  # Triển khai tuần tự từng node để đảm bảo ổn định cluster
+  roles:
+    - storage-nodes

@@ -1,0 +1,55 @@
+---
+# =============================================================================
+# group_vars/all.yml — Biến toàn cục cho tất cả hosts
+# =============================================================================
+# Các biến này được dùng bởi tất cả roles. Giá trị IP được resolve tự động
+# từ inventory (do Terraform tạo ra), với fallback cho trường hợp chạy thủ công.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Internal service endpoints — dùng bởi Nginx reverse proxy & Kong Gateway
+# -----------------------------------------------------------------------------
+internal_services:
+  gitlab:
+    host: "{{ hostvars['gitlab-server']['ansible_host'] | default('10.0.2.10') }}"
+    port: 80
+  harbor:
+    host: "{{ hostvars['harbor-server']['ansible_host'] | default('10.0.2.20') }}"
+    port: 80
+  sonarqube:
+    host: "{{ hostvars['sonarqube-server']['ansible_host'] | default('10.0.2.30') }}"
+    port: 9000
+  rancher:
+    host: "{{ hostvars['rancher-server']['ansible_host'] | default('10.0.2.40') }}"
+    port: 443
+  elk:
+    host: "{{ hostvars['elk']['ansible_host'] | default('10.0.2.50') }}"
+    kibana_port: 5601
+    es_port: 9200
+
+# -----------------------------------------------------------------------------
+# Kong Gateway configuration
+# -----------------------------------------------------------------------------
+kong_db_password: "KongStr0ngP@ss"  # Đổi password này trước khi deploy production
+
+# -----------------------------------------------------------------------------
+# GlusterFS configuration
+# -----------------------------------------------------------------------------
+glusterfs:
+  volume_name: gv0
+  brick_path: /data/glusterfs/brick
+  mount_path: /mnt/glusterfs
+  replicas: 3
+
+# -----------------------------------------------------------------------------
+# UFW defaults
+# -----------------------------------------------------------------------------
+ufw_default_policy: deny
+
+# -----------------------------------------------------------------------------
+# Nginx configuration
+# -----------------------------------------------------------------------------
+nginx:
+  worker_connections: 1024
+  keepalive_timeout: 65
+  ssl_protocols: "TLSv1.2 TLSv1.3"

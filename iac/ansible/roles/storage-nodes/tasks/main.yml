@@ -1,0 +1,137 @@
+---
+# =============================================================================
+# GlusterFS Role — tasks/main.yml
+# =============================================================================
+# Deploys a 3-node replicated GlusterFS cluster:
+#   1. Install glusterfs-server
+#   2. Create brick directories
+#   3. Probe peers (from node-1)
+#   4. Create & start the replicated volume (from node-1)
+#   5. Mount the volume on all nodes
+#
+# Every step is guarded with creates/stat checks for full idempotency.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Step 1: Install GlusterFS packages on ALL storage nodes
+# -----------------------------------------------------------------------------
+- name: Add GlusterFS APT repository
+  ansible.builtin.apt_repository:
+    repo: "ppa:gluster/glusterfs-{{ gluster_version }}"
+    state: present
+    update_cache: yes
+  tags: [glusterfs, repo]
+
+- name: Install glusterfs-server
+  ansible.builtin.apt:
+    name: glusterfs-server
+    state: present
+  tags: [glusterfs, install]
+
+- name: Ensure GlusterFS daemon is running and enabled at boot
+  ansible.builtin.service:
+    name: glusterd
+    state: started
+    enabled: yes
+  tags: [glusterfs, service]
+
+# -----------------------------------------------------------------------------
+# Step 2: Prepare brick directories on ALL nodes
+# -----------------------------------------------------------------------------
+- name: Create GlusterFS brick directory
+  ansible.builtin.file:
+    path: "{{ glusterfs.brick_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [glusterfs, brick]
+
+# -----------------------------------------------------------------------------
+# Step 3: Peer probe — run ONLY from the first storage node
+# -----------------------------------------------------------------------------
+# We only need to probe once; glusterd on each node handles the rest.
+- name: Probe peer nodes from the primary storage node
+  ansible.builtin.command: "gluster peer probe {{ item }}"
+  register: peer_probe_result
+  changed_when: "'already in peer list' not in peer_probe_result.stdout"
+  failed_when:
+    - peer_probe_result.rc != 0
+    - "'already in peer list' not in peer_probe_result.stdout"
+  loop: "{{ gluster_peers | difference([ansible_host]) }}"
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - gluster_peers | length > 1
+  tags: [glusterfs, probe]
+
+# -----------------------------------------------------------------------------
+# Step 4: Create & start the replicated volume — run ONLY from node-1
+# -----------------------------------------------------------------------------
+- name: Check if GlusterFS volume already exists
+  ansible.builtin.command: "gluster volume info {{ glusterfs.volume_name }}"
+  register: vol_info
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [glusterfs, volume]
+
+- name: Create GlusterFS replicated volume
+  ansible.builtin.command: >-
+    gluster volume create {{ glusterfs.volume_name }}
+    replica {{ glusterfs.replicas }}
+    transport tcp
+    {% for peer in gluster_peers -%}
+    {{ peer }}:{{ glusterfs.brick_path }}
+    {% endfor -%}
+    force
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - vol_info.rc != 0
+    - gluster_peers | length >= glusterfs.replicas
+  register: vol_create
+  tags: [glusterfs, volume]
+
+- name: Start GlusterFS volume
+  ansible.builtin.command: "gluster volume start {{ glusterfs.volume_name }}"
+  when:
+    - inventory_hostname == ansible_play_hosts[0]
+    - vol_info.rc != 0 or "'Status: Stopped' in vol_info.stdout"
+  register: vol_start
+  changed_when: "'started' in vol_start.stdout"
+  tags: [glusterfs, volume]
+
+# -----------------------------------------------------------------------------
+# Step 5: Configure GlusterFS volume options (idempotent)
+# -----------------------------------------------------------------------------
+- name: Set volume performance and availability options
+  ansible.builtin.command: "gluster volume set {{ glusterfs.volume_name }} {{ item.key }} {{ item.value }}"
+  loop:
+    - { key: "performance.cache-size", value: "256MB" }
+    - { key: "cluster.quorum-type", value: "auto" }
+    - { key: "network.ping-timeout", value: "10" }
+    - { key: "auth.allow", value: "{{ gluster_peers | join(',') }}" }
+  changed_when: false
+  when: inventory_hostname == ansible_play_hosts[0]
+  tags: [glusterfs, tuning]
+
+# -----------------------------------------------------------------------------
+# Step 6: Mount the volume on ALL storage nodes
+# -----------------------------------------------------------------------------
+- name: Create mount point directory
+  ansible.builtin.file:
+    path: "{{ glusterfs.mount_path }}"
+    state: directory
+    mode: "0755"
+  tags: [glusterfs, mount]
+
+- name: Mount GlusterFS volume via /etc/fstab (persistent across reboots)
+  ansible.posix.mount:
+    path: "{{ glusterfs.mount_path }}"
+    src: "{{ ansible_host }}:/{{ glusterfs.volume_name }}"
+    fstype: glusterfs
+    opts: "defaults,_netdev,noatime"
+    state: mounted
+  tags: [glusterfs, mount]
+  # We use ansible_host (self) so each node mounts its local brick —
+  # the GlusterFS client handles replication transparently.
+  ignore_errors: yes # Gracefully skip if ansible.posix is missing

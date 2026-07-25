@@ -1,0 +1,135 @@
+---
+# =============================================================================
+# UFW Role — tasks/main.yml
+# =============================================================================
+# Configures Uncomplicated Firewall on each node. The default policy is DENY
+# incoming, ALLOW outgoing. Service-specific ports are opened per-role.
+# Idempotent: rules are not added if they already exist.
+# =============================================================================
+
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  tags: [ufw]
+
+- name: Set UFW default policy — deny incoming
+  ansible.builtin.ufw:
+    direction: incoming
+    policy: "{{ ufw_default_policy | default('deny') }}"
+  tags: [ufw]
+
+- name: Set UFW default policy — allow outgoing
+  ansible.builtin.ufw:
+    direction: outgoing
+    policy: allow
+  tags: [ufw]
+
+- name: Allow SSH on all nodes (essential for Ansible itself)
+  ansible.builtin.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  tags: [ufw, ssh]
+
+# -----------------------------------------------------------------------------
+# Load Balancer — HTTP(S) + Certbot
+# -----------------------------------------------------------------------------
+- name: Allow HTTP (80) and HTTPS (443) on load balancers
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+  when: "'load_balancers' in group_names"
+  tags: [ufw, lb]
+
+# -----------------------------------------------------------------------------
+# Teleport — Web UI + Proxy ports
+# -----------------------------------------------------------------------------
+- name: Allow Teleport ports
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "443"
+    - "3023"
+    - "3024"
+    - "3025"
+  when: "'teleport' in group_names"
+  tags: [ufw, teleport]
+
+# -----------------------------------------------------------------------------
+# K8s Masters — control-plane ports
+# -----------------------------------------------------------------------------
+- name: Allow Kubernetes control-plane ports
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "6443"   # Kube API
+    - "2379"   # etcd client
+    - "2380"   # etcd peer
+    - "10250"  # Kubelet
+    - "10257"  # Scheduler
+    - "10259"  # Controller-manager
+  when: "'k8s_masters' in group_names"
+  tags: [ufw, k8s]
+
+# -----------------------------------------------------------------------------
+# Storage Nodes — GlusterFS daemon + volume ports
+# -----------------------------------------------------------------------------
+- name: Allow GlusterFS ports on storage nodes
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "24007"  # GlusterFS management daemon
+    - "24008"  # GlusterFS NFS
+    - "49152"  # First brick port (subsequent bricks use 49153+)
+  when: "'storage_nodes' in group_names"
+  tags: [ufw, glusterfs]
+
+# -----------------------------------------------------------------------------
+# Kong Gateway — API proxy + Admin ports
+# -----------------------------------------------------------------------------
+- name: Allow Kong API Gateway ports
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "8000"   # Kong HTTP proxy
+    - "8001"   # Kong Admin API (internal)
+    - "8002"   # Kong Manager GUI
+    - "8443"   # Kong HTTPS proxy
+    - "8444"   # Kong Admin HTTPS (internal)
+  when: "'kong_gateway' in group_names"
+  tags: [ufw, kong]
+
+# -----------------------------------------------------------------------------
+# ELK Stack — Elasticsearch + Logstash + Kibana ports
+# -----------------------------------------------------------------------------
+- name: Allow ELK Stack ports
+  ansible.builtin.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "9200"   # Elasticsearch HTTP
+    - "9300"   # Elasticsearch transport
+    - "5601"   # Kibana Web UI
+    - "5044"   # Logstash Beats input
+    - "9600"   # Logstash monitoring API
+  when: "'elk' in group_names"
+  tags: [ufw, elk]
+
+- name: Enable UFW and reload
+  ansible.builtin.ufw:
+    state: enabled
+  tags: [ufw]

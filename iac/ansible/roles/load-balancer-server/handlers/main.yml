@@ -1,0 +1,14 @@
+---
+# =============================================================================
+# Nginx Role — handlers/main.yml
+# =============================================================================
+# Handlers are notified by tasks and flush at the end of the play. This
+# prevents Nginx from being restarted multiple times during a single run.
+# =============================================================================
+
+- name: restart nginx
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+  # Only trigger if Nginx is actually installed (guards first-run)
+  when: ansible_facts.packages['nginx'] is defined

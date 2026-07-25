@@ -1,0 +1,14 @@
+---
+# =============================================================================
+# GlusterFS Role — handlers/main.yml
+# =============================================================================
+
+- name: restart glusterd
+  ansible.builtin.service:
+    name: glusterd
+    state: restarted
+
+- name: reload glusterd
+  ansible.builtin.service:
+    name: glusterd
+    state: reloaded

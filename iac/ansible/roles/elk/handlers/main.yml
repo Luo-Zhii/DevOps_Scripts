@@ -1,0 +1,19 @@
+---
+# =============================================================================
+# ELK Role — handlers/main.yml
+# =============================================================================
+
+- name: restart elasticsearch
+  ansible.builtin.service:
+    name: elasticsearch
+    state: restarted
+
+- name: restart kibana
+  ansible.builtin.service:
+    name: kibana
+    state: restarted
+
+- name: restart logstash
+  ansible.builtin.service:
+    name: logstash
+    state: restarted

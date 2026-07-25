@@ -1,0 +1,10 @@
+---
+# =============================================================================
+# Kong Gateway Role — handlers/main.yml
+# =============================================================================
+
+- name: restart kong
+  ansible.builtin.service:
+    name: kong
+    state: restarted
+  when: ansible_facts.packages['kong'] is defined

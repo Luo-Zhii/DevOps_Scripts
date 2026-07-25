@@ -1,0 +1,28 @@
+# =============================================================================
+# terraform.tfvars.example
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values before running
+#   terraform plan / terraform apply.
+# =============================================================================
+
+# AWS region — Singapore
+aws_region = "ap-southeast-1"
+
+# Environment tag
+environment = "prod"
+
+# Project name (used in resource naming)
+project_name = "devops-platform"
+
+# Network CIDRs — adjust if they conflict with existing VPCs
+vpc_cidr            = "10.0.0.0/16"
+public_subnet_cidr  = "10.0.1.0/24"
+private_subnet_cidr = "10.0.2.0/24"
+availability_zone   = "ap-southeast-1a"
+
+# SSH — replace with your actual EC2 Key Pair name (create it first in AWS Console)
+ssh_key_name = "my-devops-key"
+
+# Restrict SSH to your office/home static IP (CIDR format)
+# e.g. ["203.0.113.15/32"] — never leave 0.0.0.0/0 in production
+ssh_allowed_cidrs = ["0.0.0.0/0"] # TODO: change to your static IP

@@ -1,0 +1,171 @@
+---
+# =============================================================================
+# ELK Stack Role — tasks/main.yml
+# =============================================================================
+# Máy chủ: elk (Private Subnet)
+# Nhiệm vụ: Cài đặt Elasticsearch + Logstash + Kibana — stack thu thập và
+#           phân tích logs từ toàn bộ hệ thống.
+#
+# Ports:
+#   - 9200: Elasticsearch HTTP API
+#   - 9300: Elasticsearch transport (inter-node)
+#   - 5601: Kibana Web UI
+#   - 5044: Logstash Beats input (Filebeat, Metricbeat từ các node khác)
+#   - 9600: Logstash monitoring API
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Step 1: Cài đặt Java (Elasticsearch & Logstash cần Java)
+# -----------------------------------------------------------------------------
+- name: Cài đặt OpenJDK 17
+  ansible.builtin.apt:
+    name: openjdk-17-jdk
+    state: present
+    update_cache: yes
+  tags: [elk, java]
+
+# -----------------------------------------------------------------------------
+# Step 2: Thêm Elastic APT repository
+# -----------------------------------------------------------------------------
+- name: Thêm Elasticsearch GPG key
+  ansible.builtin.apt_key:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    state: present
+  tags: [elk, repo]
+
+- name: Thêm Elastic APT repository (8.x)
+  ansible.builtin.apt_repository:
+    repo: "deb https://artifacts.elastic.co/packages/8.x/apt stable main"
+    state: present
+    filename: elastic
+    update_cache: yes
+  tags: [elk, repo]
+
+# -----------------------------------------------------------------------------
+# Step 3: Cài đặt Elasticsearch
+# -----------------------------------------------------------------------------
+- name: Cài đặt Elasticsearch
+  ansible.builtin.apt:
+    name: elasticsearch
+    state: present
+  tags: [elk, elasticsearch]
+
+- name: Cấu hình Elasticsearch — single node mode
+  ansible.builtin.lineinfile:
+    path: /etc/elasticsearch/elasticsearch.yml
+    regexp: "^{{ item.key }}:"
+    line: "{{ item.key }}: {{ item.value }}"
+  loop:
+    - { key: "cluster.name", value: "devops-platform-logs" }
+    - { key: "node.name", value: "elk-node-1" }
+    - { key: "discovery.type", value: "single-node" }
+    - { key: "network.host", value: "0.0.0.0" }
+    - { key: "http.port", value: "9200" }
+    - { key: "xpack.security.enabled", value: "false" }
+  notify: restart elasticsearch
+  tags: [elk, elasticsearch]
+
+- name: Set JVM heap size cho Elasticsearch (50% RAM, max 8GB)
+  ansible.builtin.lineinfile:
+    path: /etc/elasticsearch/jvm.options.d/heap.options
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - "-Xms2g"
+    - "-Xmx2g"
+  notify: restart elasticsearch
+  tags: [elk, elasticsearch]
+
+- name: Khởi động Elasticsearch
+  ansible.builtin.service:
+    name: elasticsearch
+    state: started
+    enabled: yes
+  tags: [elk, elasticsearch]
+
+- name: Chờ Elasticsearch sẵn sàng
+  ansible.builtin.uri:
+    url: http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=60s
+    method: GET
+    status_code: 200
+  register: es_health
+  until: es_health.status == 200
+  retries: 20
+  delay: 5
+  tags: [elk, elasticsearch, health]
+
+# -----------------------------------------------------------------------------
+# Step 4: Cài đặt Kibana
+# -----------------------------------------------------------------------------
+- name: Cài đặt Kibana
+  ansible.builtin.apt:
+    name: kibana
+    state: present
+  tags: [elk, kibana]
+
+- name: Cấu hình Kibana
+  ansible.builtin.lineinfile:
+    path: /etc/kibana/kibana.yml
+    regexp: "^{{ item.key }}:"
+    line: "{{ item.key }}: {{ item.value }}"
+  loop:
+    - { key: "server.port", value: "5601" }
+    - { key: "server.host", value: "0.0.0.0" }
+    - { key: "elasticsearch.hosts", value: '["http://localhost:9200"]' }
+  notify: restart kibana
+  tags: [elk, kibana]
+
+- name: Khởi động Kibana
+  ansible.builtin.service:
+    name: kibana
+    state: started
+    enabled: yes
+  tags: [elk, kibana]
+
+# -----------------------------------------------------------------------------
+# Step 5: Cài đặt Logstash
+# -----------------------------------------------------------------------------
+- name: Cài đặt Logstash
+  ansible.builtin.apt:
+    name: logstash
+    state: present
+  tags: [elk, logstash]
+
+- name: Cấu hình Logstash — Beats input → Elasticsearch output
+  ansible.builtin.copy:
+    dest: /etc/logstash/conf.d/01-beats-input.conf
+    content: |
+      input {
+        beats {
+          port => 5044
+          host => "0.0.0.0"
+        }
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart logstash
+  tags: [elk, logstash]
+
+- name: Cấu hình Logstash — Elasticsearch output
+  ansible.builtin.copy:
+    dest: /etc/logstash/conf.d/30-elasticsearch-output.conf
+    content: |
+      output {
+        elasticsearch {
+          hosts => ["http://localhost:9200"]
+          index => "%{[@metadata][beat]}-%{+YYYY.MM.dd}"
+        }
+      }
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart logstash
+  tags: [elk, logstash]
+
+- name: Khởi động Logstash
+  ansible.builtin.service:
+    name: logstash
+    state: started
+    enabled: yes
+  tags: [elk, logstash]

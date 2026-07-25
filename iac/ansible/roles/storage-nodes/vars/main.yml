@@ -1,0 +1,11 @@
+---
+# =============================================================================
+# GlusterFS Role — vars/main.yml
+# =============================================================================
+# Values reference group_vars/all.yml via the `glusterfs` dictionary.
+# =============================================================================
+
+gluster_version: "11"
+
+# List of all storage node private IPs — resolved from the inventory at runtime
+gluster_peers: "{{ groups['storage_nodes'] | map('extract', hostvars, 'ansible_host') | list }}"

@@ -1,0 +1,24 @@
+---
+# =============================================================================
+# Nginx Role — vars/main.yml
+# =============================================================================
+# Upstream backend definitions. These are populated from group_vars/all.yml
+# and resolved from the Ansible inventory at runtime.
+# =============================================================================
+
+nginx_upstreams:
+  - name: gitlab
+    server: "{{ internal_services.gitlab.host }}:{{ internal_services.gitlab.port }}"
+    domain: "gitlab.{{ domain | default('devops.local') }}"
+  - name: harbor
+    server: "{{ internal_services.harbor.host }}:{{ internal_services.harbor.port }}"
+    domain: "registry.{{ domain | default('devops.local') }}"
+  - name: sonarqube
+    server: "{{ internal_services.sonarqube.host }}:{{ internal_services.sonarqube.port }}"
+    domain: "sonar.{{ domain | default('devops.local') }}"
+  - name: rancher
+    server: "{{ internal_services.rancher.host }}:{{ internal_services.rancher.port }}"
+    domain: "rancher.{{ domain | default('devops.local') }}"
+  - name: kibana
+    server: "{{ internal_services.elk.host }}:{{ internal_services.elk.kibana_port }}"
+    domain: "kibana.{{ domain | default('devops.local') }}"

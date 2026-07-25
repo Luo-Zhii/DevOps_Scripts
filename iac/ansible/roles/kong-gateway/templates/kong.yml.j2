@@ -1,0 +1,109 @@
+# =============================================================================
+# Kong Declarative Configuration — Services & Routes
+# =============================================================================
+# Định nghĩa các upstream services và routes. Đây là file mẫu ban đầu.
+# Sau khi Kong chạy, có thể quản lý qua Kong Manager GUI (port 8002)
+# hoặc Admin API (port 8001).
+# =============================================================================
+
+_format_version: "3.0"
+
+# -----------------------------------------------------------------------------
+# Services — upstream backend endpoints trong private subnet
+# -----------------------------------------------------------------------------
+services:
+  # GitLab — Source Code Management
+  - name: gitlab
+    url: http://{{ internal_services.gitlab.host }}:{{ internal_services.gitlab.port }}
+    connect_timeout: 60000
+    read_timeout: 300000
+    write_timeout: 300000
+    retries: 3
+    routes:
+      - name: gitlab-route
+        paths:
+          - /gitlab
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+  # Harbor — Container Registry
+  - name: harbor
+    url: http://{{ internal_services.harbor.host }}:{{ internal_services.harbor.port }}
+    connect_timeout: 60000
+    read_timeout: 120000
+    retries: 3
+    routes:
+      - name: harbor-route
+        paths:
+          - /harbor
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+  # SonarQube — Code Quality Analysis
+  - name: sonarqube
+    url: http://{{ internal_services.sonarqube.host }}:{{ internal_services.sonarqube.port }}
+    connect_timeout: 60000
+    read_timeout: 120000
+    retries: 3
+    routes:
+      - name: sonarqube-route
+        paths:
+          - /sonar
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+  # Rancher — Kubernetes Management
+  - name: rancher
+    url: https://{{ internal_services.rancher.host }}:{{ internal_services.rancher.port }}
+    connect_timeout: 60000
+    read_timeout: 120000
+    retries: 3
+    routes:
+      - name: rancher-route
+        paths:
+          - /rancher
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+# -----------------------------------------------------------------------------
+# Consumers — API consumers (thêm sau khi có auth plugin)
+# -----------------------------------------------------------------------------
+consumers: []
+
+# -----------------------------------------------------------------------------
+# Plugins — global plugins áp dụng cho tất cả services
+# -----------------------------------------------------------------------------
+plugins:
+  # CORS — cho phép frontend apps gọi API
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      headers:
+        - Accept
+        - Content-Type
+        - Authorization
+      credentials: true
+      max_age: 3600
+
+  # Rate Limiting — giới hạn request để chống abuse
+  - name: rate-limiting
+    config:
+      minute: 1000
+      hour: 10000
+      policy: local

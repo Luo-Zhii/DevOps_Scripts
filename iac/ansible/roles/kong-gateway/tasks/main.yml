@@ -1,0 +1,154 @@
+---
+# =============================================================================
+# Kong API Gateway Role — tasks/main.yml
+# =============================================================================
+# Máy chủ: kong-gateway (Public DMZ)
+# Nhiệm vụ: Cài đặt Kong API Gateway làm API management layer, đứng trước
+#           toàn bộ internal services. Kong route API requests tới backend
+#           services trong private subnet.
+#
+# Ports mặc định của Kong:
+#   - 8000:  HTTP proxy (client → Kong → upstream)
+#   - 8443:  HTTPS proxy (TLS termination tại Kong)
+#   - 8001:  Admin API (quản lý routes/services/consumers)
+#   - 8002:  Kong Manager GUI (giao diện quản lý)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Step 1: Cài đặt PostgreSQL (Kong dùng Postgres làm database)
+# -----------------------------------------------------------------------------
+- name: Cài đặt PostgreSQL cho Kong database
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-client
+      - python3-psycopg2
+    state: present
+    update_cache: yes
+  tags: [kong, postgres]
+
+- name: Khởi động PostgreSQL
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: yes
+  tags: [kong, postgres]
+
+- name: Tạo PostgreSQL user cho Kong
+  become: true
+  become_user: postgres
+  ansible.builtin.postgresql_user:
+    name: kong
+    password: "{{ kong_db_password | default('KongStr0ngP@ss') }}"
+    role_attr_flags: LOGIN
+    encrypted: yes
+  tags: [kong, postgres]
+  # Idempotent: postgresql_user module sẽ skip nếu user đã tồn tại
+
+- name: Tạo PostgreSQL database cho Kong
+  become: true
+  become_user: postgres
+  ansible.builtin.postgresql_db:
+    name: kong
+    owner: kong
+    encoding: UTF-8
+  tags: [kong, postgres]
+
+# -----------------------------------------------------------------------------
+# Step 2: Cài đặt Kong Gateway từ official repo
+# -----------------------------------------------------------------------------
+- name: Thêm Kong APT repository key
+  ansible.builtin.apt_key:
+    url: https://download.konghq.com/gateway-3.x-ubuntu-jammy/gpg.key
+    state: present
+  tags: [kong, repo]
+
+- name: Thêm Kong APT repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://download.konghq.com/gateway-3.x-ubuntu-jammy/ jammy main"
+    state: present
+    filename: kong
+    update_cache: yes
+  tags: [kong, repo]
+
+- name: Cài đặt Kong Gateway
+  ansible.builtin.apt:
+    name: kong
+    state: present
+  tags: [kong, install]
+
+# -----------------------------------------------------------------------------
+# Step 3: Cấu hình Kong
+# -----------------------------------------------------------------------------
+- name: Tạo thư mục cấu hình Kong
+  ansible.builtin.file:
+    path: /etc/kong
+    state: directory
+    owner: kong
+    group: kong
+    mode: "0755"
+  tags: [kong, config]
+
+- name: Deploy Kong configuration từ template
+  ansible.builtin.template:
+    src: kong.conf.j2
+    dest: /etc/kong/kong.conf
+    owner: kong
+    group: kong
+    mode: "0640"
+  notify: restart kong
+  tags: [kong, config]
+
+# -----------------------------------------------------------------------------
+# Step 4: Chạy Kong database migrations (chỉ lần đầu)
+# -----------------------------------------------------------------------------
+- name: Chạy Kong database bootstrap migrations
+  ansible.builtin.command: kong migrations bootstrap --conf /etc/kong/kong.conf
+  args:
+    creates: /etc/kong/.migrations_done
+  register: kong_migrations
+  changed_when: kong_migrations.rc == 0
+  tags: [kong, db]
+  # creates flag đảm bảo idempotent: chỉ chạy migration lần đầu
+
+- name: Đánh dấu migrations đã chạy
+  ansible.builtin.file:
+    path: /etc/kong/.migrations_done
+    state: touch
+    owner: kong
+    group: kong
+  when: kong_migrations.changed
+  tags: [kong, db]
+
+# -----------------------------------------------------------------------------
+# Step 5: Khởi động Kong
+# -----------------------------------------------------------------------------
+- name: Khởi động Kong Gateway
+  ansible.builtin.service:
+    name: kong
+    state: started
+    enabled: yes
+  tags: [kong, service]
+
+# -----------------------------------------------------------------------------
+# Step 6: Setup Kong declarative config (services + routes mẫu)
+# -----------------------------------------------------------------------------
+- name: Deploy Kong declarative configuration (services & routes mẫu)
+  ansible.builtin.template:
+    src: kong.yml.j2
+    dest: /etc/kong/kong.yml
+    owner: kong
+    group: kong
+    mode: "0640"
+  tags: [kong, config, routes]
+
+- name: Kiểm tra Kong Admin API đã sẵn sàng
+  ansible.builtin.uri:
+    url: http://localhost:8001/status
+    method: GET
+    status_code: 200
+  register: kong_status
+  until: kong_status.status == 200
+  retries: 12
+  delay: 5
+  tags: [kong, health]
