@@ -30,7 +30,7 @@ internal_services:
 # -----------------------------------------------------------------------------
 # Kubernetes worker nodes — dùng bởi Kong & Nginx để forward đến K8s NodePort
 # -----------------------------------------------------------------------------
-k8s_first_worker_ip: "{{ hostvars[groups['k8s_workers'][0]]['ansible_host'] | default('10.0.2.101') }}"
+k8s_first_master_ip: "{{ hostvars[groups['k8s_masters'][0]]['ansible_host'] | default('10.0.2.101') }}"
 
 # -----------------------------------------------------------------------------
 # Kong Gateway configuration

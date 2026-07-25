@@ -1,0 +1,9 @@
+---
+# =============================================================================
+# Rancher Server Role — handlers/main.yml
+# =============================================================================
+
+- name: restart rancher
+  community.docker.docker_container:
+    name: rancher
+    state: restarted

@@ -74,19 +74,7 @@ all:
           ansible_host: ${k8s_masters["k8s-master-3"]}
 
     # =====================================================================
-    # NHÓM 4: Kubernetes Worker Nodes — chạy application pods (ShopNow...)
-    # =====================================================================
-    k8s_workers:
-      hosts:
-        k8s-worker-1:
-          ansible_host: ${k8s_workers["k8s-worker-1"]}
-        k8s-worker-2:
-          ansible_host: ${k8s_workers["k8s-worker-2"]}
-        k8s-worker-3:
-          ansible_host: ${k8s_workers["k8s-worker-3"]}
-
-    # =====================================================================
-    # NHÓM 5: Storage HA Cluster — GlusterFS Replicated Volume
+    # NHÓM 4: Storage HA Cluster — GlusterFS Replicated Volume
     # =====================================================================
     storage_nodes:
       hosts:

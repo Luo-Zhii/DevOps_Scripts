@@ -29,5 +29,5 @@ nginx_upstreams:
   # Nginx proxy pass đến Ingress Controller, kèm Host header.
   # Ingress Controller đọc Host: shopnow.luo.io.vn → route đến frontend pod.
   - name: shopnow-frontend
-    server: "{{ k8s_first_worker_ip }}:30080"
+    server: "{{ k8s_first_master_ip }}:30080"
     domain: "shopnow.luo.io.vn"

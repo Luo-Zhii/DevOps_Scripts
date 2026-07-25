@@ -6,7 +6,7 @@
 # =============================================================================
 
 roles/
-├── common/                  → TẤT CẢ 19 servers (bootstrap chung)
+├── common/                  → TẤT CẢ 16 servers (bootstrap chung)
 ├── ufw/                     → TẤT CẢ servers (firewall, port mở theo role)
 │
 ├── load-balancer-server/    → load-balancer-server (Public DMZ)
@@ -15,20 +15,23 @@ roles/
 │
 ├── kong-gateway/            → kong-gateway (Public DMZ)
 │     Kong API Gateway + PostgreSQL, quản lý API routes + plugins
-│     Routes: gitlab, harbor, sonarqube, rancher, shopnow-api-gateway
+│     Routes: gitlab, harbor, sonarqube, rancher + ShopNow (7 routes)
+│
+├── rancher-server/     🆕   → rancher-server (Private Subnet)
+│     Docker + Rancher container — K8s Cluster Management UI
 │
 ├── elk/                     → elk (Private Subnet)
 │     Elasticsearch + Logstash + Kibana, thu thập & phân tích logs
 │
-├── k8s-bootstrap/      🆕   → k8s-master-1,2,3 + k8s-worker-1,2,3 (6 nodes)
+├── k8s-bootstrap/           → k8s-master-1,2,3 (3 nodes = master + worker)
 │     Cài containerd + kubeadm/kubelet/kubectl → kubeadm init/join → Calico CNI
-│     → Tạo Kubernetes cluster 6 nodes sẵn sàng chạy workload
+│     3 node vừa control-plane vừa workload (bỏ taint), disk 20GB
 │
 ├── storage-nodes/           → storage-master-1, storage-master-2, storage-master-3
 │     GlusterFS replicated volume (3-node HA cluster)
 │
 └── (platform_tools)         → gitlab-server, harbor-server, sonarqube-server,
-    (dùng tasks inline         rancher-server, dev-server
+    (dùng tasks inline         dev-server
      trong site.yml)           Docker prerequisites, chưa có role riêng từng tool
 
 # =============================================================================
@@ -39,24 +42,17 @@ roles/
 # =============================================================================
 
 # =============================================================================
-# SHOPNOW INTEGRATION — Kiến trúc triển khai (dùng K8s Ingress)
+# SHOPNOW INTEGRATION — 3 tầng proxy
 # =============================================================================
 #
-# TẤT CẢ traffic ShopNow → Kong EIP → 1 upstream duy nhất → K8s Ingress :30080
-# Ingress Controller (NGINX) đọc Host header và route đến đúng ClusterIP Service.
+# TẤT CẢ domain ShopNow → Kong EIP → 1 upstream → K8s master IP:30080
+# Ingress NGINX đọc Host header → route đến ClusterIP Service.
 #
-# Flow tổng:
-#   Browser → Kong EIP :8000
-#          → K8s Worker NodePort 30080
-#          → Ingress NGINX (đọc Host header)
-#          → Route đến Service:
-#               shopnow.luo.io.vn                → shopnow-frontend:80
-#               api-shopnow.luo.io.vn            → api-gateway:5860
-#               discovery-server-shopnow...      → shopnow-discovery-server-service:8761
-#               keycloak-shopnow...              → keycloak:8080
-#               product-service-shopnow...       → product-service:5861
-#               cart-service-shopnow...          → shopping-cart-service:5863
-#               user-service-shopnow...          → user-service:5865
+# Kong (Tầng 1)  = bảo vệ: CORS, Rate Limit, IP Restrict, Cache, Security Headers
+# Ingress (Tầng 2) = route hostname → Service
+# Spring GW (Tầng 3) = route path → microservice nội bộ
 #
-# KHÔNG dùng nhiều NodePort riêng lẻ nữa. Chỉ 1 NodePort 30080 cho toàn bộ.
+# 3 node K8s (master+worker, disk 20GB):
+#   k8s-master-1,2,3 vừa chạy etcd+apiserver vừa chạy ShopNow pods
+#   Bỏ taint control-plane để schedule workload lên cả 3 node
 # =============================================================================

@@ -52,7 +52,6 @@ module "compute" {
   sg_lb_id          = module.security.sg_lb_id
   sg_teleport_id    = module.security.sg_teleport_id
   sg_k8s_masters_id = module.security.sg_k8s_masters_id
-  sg_k8s_workers_id = module.security.sg_k8s_workers_id
   sg_kong_id        = module.security.sg_kong_id
   sg_elk_id         = module.security.sg_elk_id
   sg_internal_id    = module.security.sg_internal_id

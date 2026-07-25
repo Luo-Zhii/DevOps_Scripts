@@ -51,17 +51,6 @@ output "k8s_masters" {
 }
 
 # -----------------------------------------------------------------------------
-# Kubernetes worker nodes
-# -----------------------------------------------------------------------------
-output "k8s_workers" {
-  description = "Map of K8s worker names → private IPs (cho Ansible inventory [k8s_workers])"
-  value = {
-    for name in ["k8s-worker-1", "k8s-worker-2", "k8s-worker-3"] :
-    name => aws_instance.this[name].private_ip
-  }
-}
-
-# -----------------------------------------------------------------------------
 # Storage nodes — GlusterFS cluster
 # -----------------------------------------------------------------------------
 output "storage_nodes" {

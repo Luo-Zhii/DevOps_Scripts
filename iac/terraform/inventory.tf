@@ -15,7 +15,6 @@ resource "local_file" "ansible_inventory" {
     kong_public_ip     = module.compute.kong_public_ip
     kong_private_ip    = module.compute.kong_private_ip
     k8s_masters        = module.compute.k8s_masters
-    k8s_workers        = module.compute.k8s_workers
     storage_nodes      = module.compute.storage_nodes
     platform_tools     = module.compute.platform_tools
     elk_private_ip     = module.compute.elk_private_ip

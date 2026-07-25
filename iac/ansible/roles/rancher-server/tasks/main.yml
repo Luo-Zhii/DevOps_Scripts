@@ -1,0 +1,73 @@
+---
+# =============================================================================
+# Rancher Server Role — tasks/main.yml
+# =============================================================================
+# Máy chủ: rancher-server (Private Subnet, t3.large 30GB)
+# Nhiệm vụ: Cài đặt Rancher — Kubernetes Cluster Management UI
+#
+# Rancher chạy dưới dạng Docker container, quản lý K8s cluster qua API.
+# Ports: 80 (HTTP), 443 (HTTPS) — Nginx reverse proxy từ load-balancer.
+# =============================================================================
+
+- name: Cài Docker engine (Rancher chạy dưới dạng container)
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose
+    state: present
+    update_cache: yes
+  tags: [rancher, docker]
+
+- name: Khởi động Docker
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: yes
+  tags: [rancher, docker]
+
+- name: Tạo thư mục dữ liệu Rancher
+  ansible.builtin.file:
+    path: /opt/rancher
+    state: directory
+    mode: "0755"
+  tags: [rancher]
+
+- name: Kiểm tra xem Rancher đã chạy chưa
+  community.docker.docker_container_info:
+    name: rancher
+  register: rancher_container
+  tags: [rancher]
+
+- name: Chạy Rancher Server (Docker container)
+  community.docker.docker_container:
+    name: rancher
+    image: "rancher/rancher:{{ rancher_version | default('v2.8.5') }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/rancher:/var/lib/rancher
+    env:
+      CATTLE_BOOTSTRAP_PASSWORD: "{{ rancher_admin_password | default('RancherDemo123!') }}"
+    privileged: true
+  when: not rancher_container.exists
+  tags: [rancher]
+
+- name: Đợi Rancher khởi động xong
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}"
+    method: GET
+    validate_certs: no
+    status_code: [200, 404]
+  register: rancher_health
+  until: rancher_health.status in [200, 404]
+  retries: 30
+  delay: 10
+  tags: [rancher]
+
+- name: Thông báo Rancher đã sẵn sàng
+  ansible.builtin.debug:
+    msg: "Rancher available at https://rancher.luo.io.vn (bootstrap password: RancherDemo123!)"
+  tags: [rancher]

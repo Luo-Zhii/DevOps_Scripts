@@ -77,12 +77,22 @@
     - ufw
     - elk
 
+# --- rancher-server: K8s Cluster Management UI ---
+- name: "[rancher-server] Cài đặt Rancher — Kubernetes Cluster Manager"
+  hosts: rancher-server
+  become: yes
+  roles:
+    - ufw
+    - rancher-server
+
 # =========================================================================
-# PHASE 3: Kubernetes Cluster Bootstrap (v1.30) — 3 masters + 3 workers
+# PHASE 3: Kubernetes Cluster Bootstrap (v1.30) — 3 nodes (master + worker)
+# =========================================================================
+# 3 node vừa làm control-plane vừa chạy workload.
+# Sau khi init cluster, bỏ taint để pod schedule được lên control-plane node.
 # =========================================================================
 
-# --- k8s-master-1,2,3: Cài containerd + kubeadm + init/join control-plane ---
-- name: "[K8s Masters] Bootstrap Kubernetes control-plane (containerd + kubeadm + Calico)"
+- name: "[K8s] Bootstrap Kubernetes cluster 3 nodes (containerd + kubeadm + Calico)"
   hosts: k8s_masters
   become: yes
   roles:
@@ -129,62 +139,19 @@
       ignore_errors: yes
       tags: [k8s, kernel]
 
-  roles:
-    - role: k8s-bootstrap
-
-# --- k8s-worker-1,2,3: Cài containerd + kubeadm join ---
-- name: "[K8s Workers] Join worker nodes vào cluster (containerd + kubeadm join)"
-  hosts: k8s_workers
-  become: yes
-  roles:
-    - ufw
-  tasks:
-    - name: Tắt swap
-      ansible.builtin.command: swapoff -a
-      changed_when: false
-      tags: [k8s, swap]
-
-    - name: Xóa swap khỏi /etc/fstab
-      ansible.builtin.lineinfile:
-        path: /etc/fstab
-        regexp: '^.*swap.*$'
-        state: absent
-      tags: [k8s, swap]
-
-    - name: Load kernel modules
-      ansible.builtin.copy:
-        dest: /etc/modules-load.d/k8s.conf
-        content: |
-          overlay
-          br_netfilter
-      tags: [k8s, kernel]
-
-    - name: Bật kernel modules ngay lập tức
-      ansible.builtin.command: modprobe {{ item }}
-      loop:
-        - overlay
-        - br_netfilter
-      changed_when: false
-      tags: [k8s, kernel]
-
-    - name: Cấu hình sysctl cho K8s networking
-      ansible.posix.sysctl:
-        name: "{{ item.key }}"
-        value: "{{ item.value }}"
-        state: present
-        reload: yes
-      loop:
-        - { key: "net.bridge.bridge-nf-call-iptables", value: "1" }
-        - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
-        - { key: "net.ipv4.ip_forward", value: "1" }
-      ignore_errors: yes
-      tags: [k8s, kernel]
-
     - name: Cài đặt glusterfs-client (cần cho GlusterFS PersistentVolume)
       ansible.builtin.apt:
         name: glusterfs-client
         state: present
       tags: [k8s, glusterfs]
+
+    - name: Bỏ taint control-plane để schedule workload pods (dev mode)
+      ansible.builtin.command:
+        cmd: kubectl taint nodes --all node-role.kubernetes.io/control-plane- 2>/dev/null || true
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname == ansible_play_hosts[0]
+      tags: [k8s, untaint]
 
   roles:
     - role: k8s-bootstrap

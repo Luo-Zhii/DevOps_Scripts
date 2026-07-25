@@ -66,7 +66,3 @@ variable "sg_elk_id" {
   type        = string
 }
 
-variable "sg_k8s_workers_id" {
-  description = "SG ID for K8s worker nodes"
-  type        = string
-}

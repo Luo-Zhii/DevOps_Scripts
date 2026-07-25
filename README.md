@@ -4,7 +4,9 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
 
 ---
 
-## Kiến trúc tổng quan (19 EC2 Instances)
+## Kiến trúc tổng quan (16 EC2 Instances)
+
+> **Diagram:** [assets/architecture.drawio](assets/architecture.drawio) — mở bằng [draw.io](https://app.diagrams.net) hoặc VS Code plugin `hediet.vscode-drawio`
 
 ```
                             Internet
@@ -12,7 +14,7 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
         ┌──────────────────────┼──────────────────────┐
         │                      │                      │
         ▼                      ▼                      ▼
-  shopnow.luo.io.vn   api-shopnow.luo.io.vn    (teleport, gitlab...)
+  shopnow.luo.io.vn   api-shopnow.luo.io.vn    (gitlab, rancher...)
    (Nginx EIP)          (Kong EIP)
         │                      │
   ┌─────┴─────┐          ┌─────┴─────┐
@@ -32,12 +34,12 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
   ├──────────────────────────────────┤
   │  PLATFORM TOOLS (6):             │
   │   gitlab-server   harbor-server  │
-  │   sonarqube-server rancher-server│
+  │   sonarqube-server rancher 🆕    │
   │   dev-server       elk           │
   ├──────────────────────────────────┤
-  │  K8s CLUSTER (6 nodes):          │
-  │   k8s-master-1,2,3 (control)     │
-  │   k8s-worker-1,2,3 (workload) 🆕 │
+  │  K8s CLUSTER (3 nodes):          │
+  │   k8s-master-1,2,3               │
+  │   (control-plane + workload)     │
   │   ┌──────────────────────────┐   │
   │   │ ShopNow on K8s:          │   │
   │   │  api-gateway (5860)      │   │
@@ -66,6 +68,8 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
 DevOps_Scripts/
 ├── .gitignore                        # Ignore Terraform state, tfvars, node_modules...
 ├── README.md                         ← BẠN ĐANG Ở ĐÂY
+├── assets/
+│   └── architecture.drawio           # Sơ đồ kiến trúc tổng thể (Draw.io)
 │
 ├── iac/                              # Infrastructure as Code
 │   │
@@ -73,8 +77,8 @@ DevOps_Scripts/
 │   │   │                              # Tạo VPC, subnet, security group, EC2...
 │   │   ├── 🏗️ MODULES/               # Code tái sử dụng — mỗi module là 1 "bộ phận"
 │   │   │   ├── network/              # MẠNG: VPC, subnets, IGW, NAT, route tables
-│   │   │   ├── security/             # BẢO MẬT: 7 Security Groups
-│   │   │   └── compute/              # MÁY CHỦ: 19 EC2 instances + EIP
+│   │   │   ├── security/             # BẢO MẬT: 6 Security Groups
+│   │   │   └── compute/              # MÁY CHỦ: 16 EC2 instances + EIP
 │   │   │
 │   │   └── 📄 ROOT FILES/           # Kết nối các module với nhau
 │   │       ├── providers.tf          # Terraform + AWS provider config
@@ -97,13 +101,13 @@ DevOps_Scripts/
 │       │   └── .gitkeep              # hosts.yml sẽ được Terraform tạo ra
 │       └── roles/                    # Mỗi folder = công thức cài đặt cho 1 server
 │           ├── README.md             # Map role → server
-│           ├── common/               → ALL    19 servers  (bootstrap chung)
-│           ├── ufw/                  → ALL    19 servers  (firewall OS-level)
+│           ├── common/               → ALL    16 servers  (bootstrap chung)
+│           ├── ufw/                  → ALL    16 servers  (firewall OS-level)
 │           ├── load-balancer-server/  → load-balancer-server   (Nginx RP)
 │           ├── kong-gateway/          → kong-gateway           (API Gateway)
 │           ├── elk/                   → elk                    (Logging Stack)
 │           ├── k8s-bootstrap/    🆕   → k8s-master-1,2,3       (containerd + kubeadm)
-│           │                          → k8s-worker-1,2,3       (join cluster)
+│           │                          (3 nodes = master+worker, bỏ taint)
 │           └── storage-nodes/         → storage-master-1,2,3   (GlusterFS HA)
 │
 └── Shopnow_k8s/                      # Ứng dụng E-Commerce Microservices
@@ -178,7 +182,7 @@ Tự động tìm **AMI Ubuntu 22.04 LTS** mới nhất từ Canonical (`0997201
 ```
 module "network"   → tạo VPC + subnets + NAT
 module "security"  → tạo 6 security groups (dùng VPC từ module trên)
-module "compute"   → tạo 19 EC2 (dùng subnet + SG từ 2 module trên)
+module "compute"   → tạo 16 EC2 (dùng subnet + SG từ 2 module trên)
 
 → Dữ liệu truyền giữa các module qua outputs
 → VD: network xuất subnet_id → compute nhận vào để đặt EC2 đúng chỗ
@@ -231,7 +235,6 @@ network/
 | `sg-lb` | load-balancer-server | 80, 443 từ 0.0.0.0/0 |
 | `sg-teleport` | teleport | 22 (restricted), 443, 3023-3025 |
 | `sg-k8s-masters` | k8s-master-1,2,3 | 6443, 2379-2380, 10250-10259, **30000-32767** |
-| `sg-k8s-workers` 🆕 | k8s-worker-1,2,3 | 10250 (kubelet), **30000-32767** (NodePort) |
 | `sg-kong` | kong-gateway | 8000, 8443 (proxy), 8001 (admin), 8002 (GUI) |
 | `sg-elk` | elk | 9200, 9300 (ES), 5601 (Kibana), 5044 (Beats) |
 | `sg-internal` | TẤT CẢ server | All traffic trong VPC CIDR |
@@ -264,7 +267,7 @@ locals {
 }
 
 resource "aws_instance" "this" {
-  for_each = local.instances    # 1 block code → 19 servers
+  for_each = local.instances    # 1 block code → 16 servers
   # ... tự động chọn subnet, SG theo role
 }
 ```
@@ -282,21 +285,17 @@ resource "aws_instance" "this" {
 | | rancher-server | t3.large | 30 GB |
 | | dev-server | t3.large | 18 GB |
 | | elk | t3.large | 30 GB |
-| | k8s-master-1 | t3.medium | 10 GB |
-| | k8s-master-2 | t3.medium | 10 GB |
-| | k8s-master-3 | t3.medium | 10 GB |
-| | k8s-worker-1 🆕 | t3.medium | 20 GB |
-| | k8s-worker-2 🆕 | t3.medium | 20 GB |
-| | k8s-worker-3 🆕 | t3.medium | 20 GB |
+| | k8s-master-1 🆕 | t3.medium | 20 GB |
+| | k8s-master-2 🆕 | t3.medium | 20 GB |
+| | k8s-master-3 🆕 | t3.medium | 20 GB |
 | | storage-master-1 | t3.micro | 8 GB |
 | | storage-master-2 | t3.micro | 8 GB |
 | | storage-master-3 | t3.micro | 8 GB |
 
 Security group tự động chọn theo role:
 - `load-balancer` → gắn `sg_lb` + `sg_internal`
-- `k8s-master` → gắn `sg_k8s_masters` + `sg_internal`
+- `k8s-master` → gắn `sg_k8s_masters` + `sg_internal` (3 node = control+workload, bỏ taint)
 - `kong-gateway` → gắn `sg_kong` + `sg_internal`
-- `k8s-worker` → gắn `sg_k8s_workers` + `sg_internal`
 - `elk` → gắn `sg_elk` + `sg_internal`
 - Còn lại → chỉ `sg_internal`
 
@@ -324,7 +323,7 @@ User data (cloud-init): cài `python3`, `python3-apt`, `haveged`, set hostname, 
 ### `site.yml` — Master Playbook (6 phases)
 
 ```
-PHASE 0 ─ [ALL 19 servers]
+PHASE 0 ─ [ALL 16 servers]
           └── common: base packages, NTP, kernel tuning
 
 PHASE 1 ─ [Public DMZ — 3 servers]
@@ -336,16 +335,14 @@ PHASE 1 ─ [Public DMZ — 3 servers]
 
 PHASE 2 ─ [Private Platform Tools — 6 servers]
           ├── platform_tools:       ufw + Docker prerequisites
-          │   (gitlab, harbor, sonarqube, rancher, dev-server)
+          │   (gitlab, harbor, sonarqube, dev-server)
+          ├── rancher-server:  🆕   ufw + Rancher (Docker container, K8s Manager)
           └── elk:                  ufw + Elasticsearch + Logstash + Kibana
 
-PHASE 3 ─ [K8s Cluster — 6 servers] 🆕
-          ├── k8s_masters:          ufw + swap off + kernel modules
-          │   + k8s-bootstrap role (containerd + kubeadm init/join + Calico CNI)
-          │   (k8s-master-1, k8s-master-2, k8s-master-3)
-          └── k8s_workers:          ufw + swap off + kernel modules
-              + k8s-bootstrap role (containerd + kubeadm join)
-              (k8s-worker-1, k8s-worker-2, k8s-worker-3)
+PHASE 3 ─ [K8s Cluster — 3 servers] 
+          └── k8s_masters:          ufw + swap off + kernel modules
+              + k8s-bootstrap role (containerd + kubeadm init/join + Calico CNI)
+              (3 node = control-plane + workload, bỏ taint, disk 20GB)
 
 PHASE 4 ─ [Storage Cluster — 3 servers]
           └── storage_nodes:        GlusterFS replicated volume
@@ -377,7 +374,7 @@ roles/<tên-server>/
 └── vars/main.yml       # Biến riêng của role (không bắt buộc)
 ```
 
-### Role `common/` → TẤT CẢ 19 servers
+### Role `common/` → TẤT CẢ 16 servers
 
 | Bước | Hành động | Tại sao |
 |---|---|---|
@@ -389,7 +386,7 @@ roles/<tên-server>/
 | 6 | File descriptor limit 65536 | Cần cho high-traffic services |
 | 7 | Bật unattended-upgrades | Tự động cài security patches |
 
-### Role `ufw/` → TẤT CẢ 19 servers
+### Role `ufw/` → TẤT CẢ 16 servers
 
 | Bước | Mô tả |
 |---|---|
@@ -402,10 +399,9 @@ roles/<tên-server>/
 | `load_balancers` | 80, 443 |
 | `teleport` | 443, 3023, 3024, 3025 |
 | `kong_gateway` | 8000, 8001, 8002, 8443, 8444 |
-| `k8s_masters` | 6443, 2379, 2380, 10250, 10257, 10259 |
+| `k8s_masters` (3 node = control+workload) | 6443, 2379, 2380, 10250, 10257, 10259, **30000-32767** |
 | `elk` | 9200, 9300, 5601, 5044, 9600 |
 | `storage_nodes` | 24007, 24008, 49152 |
-| `k8s_workers` 🆕 | 10250, 30000-32767 |
 
 ### Role `load-balancer-server/` → Nginx Reverse Proxy
 
@@ -490,7 +486,7 @@ Kong KHÔNG chỉ pass-through — mỗi route có plugin bảo vệ riêng:
 |---|---|
 | Tên role = tên server | `load-balancer-server/`, `kong-gateway/`, `elk/` |
 | Tên role = tên nhóm server | `storage-nodes/` (cho storage-master-1,2,3) |
-| Shared role có comment rõ phạm vi | `common/` → "ALL 19 servers" |
+| Shared role có comment rõ phạm vi | `common/` → "ALL 16 servers" |
 | Phase trong site.yml ghi rõ tên server | `[load-balancer-server] Cài đặt Nginx...` |
 | Mọi file đều có header comment giải thích | `# ===== Role X — tasks/main.yml =====` |
 
@@ -505,16 +501,16 @@ cp terraform.tfvars.example terraform.tfvars
 # → Sửa ssh_key_name + ssh_allowed_cidrs
 
 terraform init && terraform plan && terraform apply
-# → Output public IPs + tự động ghi ansible inventory (19 servers)
+# → Output public IPs + tự động ghi ansible inventory (16 servers)
 
 # ─── Bước 2: Cấu hình OS + bootstrap K8s ───────────────────────
 cd ../ansible
-ansible-playbook site.yml --limit k8s_masters,k8s_workers
-# → Cài containerd + kubeadm → init cluster → join nodes → Calico CNI
+ansible-playbook site.yml --limit k8s_masters
+# → Cài containerd + kubeadm → init cluster → Calico CNI → bỏ taint
 
 # ─── Bước 3: Verify K8s cluster ────────────────────────────────
 ssh k8s-master-1
-kubectl get nodes            # 6 nodes Ready
+kubectl get nodes            # 3 nodes Ready (master+worker, untainted)
 kubectl get pods -A          # Tất cả system pods Running
 
 # ─── Bước 4: Build & push Docker images lên Harbor ─────────────
@@ -655,23 +651,3 @@ Mỗi tầng KHÔNG thay thế nhau — chúng bổ trợ:
 | `*.j2` | **Jinja2 Template** | Template engine — sinh file cấu hình động |
 
 ---
-
-## Git commit convention
-
-```bash
-# Commit 1: Terraform
-git add iac/terraform/
-git commit -m "feat(terraform): provision AWS infrastructure — VPC, 7 SG, 19 EC2"
-
-# Commit 2: Ansible
-git add iac/ansible/
-git commit -m "feat(ansible): configure 19 servers — K8s bootstrap + Nginx + Kong"
-
-# Commit 3: ShopNow app
-git add Shopnow_k8s/
-git commit -m "feat(shopnow): add e-commerce microservices + K8s manifests"
-
-# Commit 4: Docs
-git add README.md .gitignore
-git commit -m "docs: update README with full architecture + .gitignore"
-```

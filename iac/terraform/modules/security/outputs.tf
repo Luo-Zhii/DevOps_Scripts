@@ -32,7 +32,3 @@ output "sg_elk_id" {
   value       = aws_security_group.elk.id
 }
 
-output "sg_k8s_workers_id" {
-  description = "Security group ID for Kubernetes worker nodes"
-  value       = aws_security_group.k8s_workers.id
-}

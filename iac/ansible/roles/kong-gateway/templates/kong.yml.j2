@@ -113,7 +113,7 @@ services:
   # và route đến đúng service. Kong làm nhiệm vụ bảo vệ + policies.
   # ===========================================================================
   - name: shopnow-ingress
-    url: http://{{ k8s_first_worker_ip }}:30080
+    url: http://{{ k8s_first_master_ip }}:30080
     connect_timeout: 60000
     read_timeout: 120000
     write_timeout: 120000

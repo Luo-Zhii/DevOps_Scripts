@@ -100,11 +100,6 @@ output "ansible_inventory_k8s_masters" {
   value       = module.compute.k8s_masters
 }
 
-output "ansible_inventory_k8s_workers" {
-  description = "K8s workers for Ansible [k8s_workers] group"
-  value       = module.compute.k8s_workers
-}
-
 output "ansible_inventory_storage_nodes" {
   description = "Storage nodes for Ansible [storage_nodes] group"
   value       = module.compute.storage_nodes
