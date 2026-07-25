@@ -431,6 +431,8 @@ Server quan trọng nhất — toàn bộ traffic từ internet đi qua đây.
 
 ### Role `kong-gateway/` → API Gateway
 
+Kong KHÔNG chỉ pass-through — mỗi route có plugin bảo vệ riêng:
+
 | Bước | Hành động |
 |---|---|
 | 1 | Cài PostgreSQL, tạo user `kong` + database `kong` |
@@ -438,8 +440,21 @@ Server quan trọng nhất — toàn bộ traffic từ internet đi qua đây.
 | 3 | Deploy `kong.conf` từ template (database, proxy ports, plugins) |
 | 4 | Chạy `kong migrations bootstrap` — **chỉ lần đầu** (idempotent guard) |
 | 5 | Start Kong |
-| 6 | Deploy `kong.yml` — declarative config (services, routes, CORS, rate-limiting) |
+| 6 | Deploy `kong.yml` — services + routes + plugins theo từng loại endpoint |
 | 7 | Health check — chờ Kong Admin API sẵn sàng |
+
+**Plugin áp dụng theo từng route:**
+
+| Route | Mức độ | Plugin | Tác dụng |
+|---|---|---|---|
+| `shopnow.luo.io.vn` (Frontend) | Public | CORS + Rate Limit + **Proxy Cache** | Cache ảnh/CSS/JS 5 phút → giảm tải backend |
+| `api-shopnow.luo.io.vn` (API) | Public | CORS + Rate Limit + **Body Size** + **Security Headers** | Payload max 10MB, thêm `X-XSS-Protection`, `HSTS`, `nosniff` |
+| `discovery-server-shopnow...` (Eureka) | **Admin** | Rate Limit + **IP Restrict** + Bot Detection | **Chỉ cho IP nội bộ** (10.x, 172.x, 192.x), 20 req/phút |
+| `keycloak-shopnow...` | **Admin** | Rate Limit + **IP Restrict** + Bot Detection | **Chỉ VPC truy cập**, 30 req/phút |
+| `product/cart/user-shopnow...` | **Dev** | Rate Limit + **IP Restrict** | **Chỉ VPC truy cập**, 60 req/phút |
+| `gitlab / registry / sonar / rancher` | Internal | Rate Limit | 200 req/phút |
+
+> **Tại sao không bật JWT Auth ở Kong?** ShopNow đã có Spring Security + OAuth2 Resource Server validate JWT từ Keycloak ở tầng Spring Cloud Gateway rồi — bật thêm ở Kong sẽ bị trùng.
 
 ### Role `elk/` → Elasticsearch + Logstash + Kibana
 
@@ -511,50 +526,123 @@ cd ../../Shopnow_k8s
 cd k8s-manifests
 # Sửa STORAGE_MASTER_*_IP trong 04-glusterfs-storage.yaml
 ./deploy.sh
-# → Deploy namespace, secrets, configs, PVs, 8 components
+# → 16 steps: namespace → secrets → PVs → 8 app components → Ingress
 
-# ─── Bước 6: Cập nhật Kong + Nginx config ──────────────────────
+# ─── Bước 6: Cập nhật Kong config ───────────────────────────────
 cd ../../iac/ansible
 ansible-playbook site.yml --limit kong_gateway --tags kong
-ansible-playbook site.yml --limit load_balancers --tags nginx,config
+# → Kong reload với kong.yml mới: CORS, rate limit, IP restrict, cache
 
 # ─── Bước 7: DNS ───────────────────────────────────────────────
-# Trỏ các domain về EIP tương ứng:
-#   shopnow.luo.io.vn                    → Nginx EIP
-#   api-shopnow.luo.io.vn                → Kong EIP
-#   discovery-server-shopnow.luo.io.vn   → Kong EIP
-#   keycloak-shopnow.luo.io.vn           → Kong EIP
-#   product-service-shopnow.luo.io.vn    → Kong EIP
-#   cart-service-shopnow.luo.io.vn       → Kong EIP
-#   user-service-shopnow.luo.io.vn       → Kong EIP
+# Trỏ TẤT CẢ domain ShopNow về Kong EIP:
+#   shopnow.luo.io.vn, api-shopnow.luo.io.vn,
+#   discovery-server-shopnow.luo.io.vn, keycloak-shopnow.luo.io.vn,
+#   product-service-shopnow.luo.io.vn, cart-service-shopnow.luo.io.vn,
+#   user-service-shopnow.luo.io.vn
 
 # ─── Bước 8: Verify ────────────────────────────────────────────
-curl http://shopnow.luo.io.vn                          # Frontend
+curl http://shopnow.luo.io.vn                          # Frontend (public)
 curl http://api-shopnow.luo.io.vn/api/product          # API (cần JWT)
-curl http://discovery-server-shopnow.luo.io.vn         # Eureka dashboard
-curl http://keycloak-shopnow.luo.io.vn                 # Keycloak admin
+curl http://discovery-server-shopnow.luo.io.vn         # Eureka (blocked từ internet!)
+curl http://keycloak-shopnow.luo.io.vn                 # Keycloak (blocked từ internet!)
 ```
 
 ---
 
 ## ShopNow Domain Mapping
 
-Tất cả domain dùng chung base `luo.io.vn`. Cấu hình DNS: trỏ tất cả về **Nginx EIP** hoặc **Kong EIP** như bảng dưới.
+Tất cả domain dùng chung base `luo.io.vn`. DNS: trỏ tất cả domain ShopNow về **Kong EIP**.
 
-| Domain | Trỏ đến | Backend | NodePort |
+**Cơ chế:** Kong nhận request → forward đến **K8s Ingress NGINX (NodePort 30080)** → Ingress đọc Host header → route đến đúng ClusterIP Service.
+
+| Domain | Trỏ đến | Qua | Backend Service |
 |---|---|---|---|
-| `shopnow.luo.io.vn` | **Nginx EIP** | React Frontend (nginx:80) | `30002` |
-| `api-shopnow.luo.io.vn` | **Kong EIP** | Spring Cloud Gateway (:5860) | `30001` |
-| `discovery-server-shopnow.luo.io.vn` | **Kong EIP** | Eureka Dashboard (:8761) | `30003` |
-| `keycloak-shopnow.luo.io.vn` | **Kong EIP** | Keycloak Admin (:8080) | `30004` |
-| `product-service-shopnow.luo.io.vn` | **Kong EIP** | Spring Cloud Gateway → Product Service | `30001` |
-| `cart-service-shopnow.luo.io.vn` | **Kong EIP** | Spring Cloud Gateway → Cart Service | `30001` |
-| `user-service-shopnow.luo.io.vn` | **Kong EIP** | Spring Cloud Gateway → User Service | `30001` |
-| `gitlab.luo.io.vn` | **Nginx EIP** | gitlab-server | — |
-| `registry.luo.io.vn` | **Nginx EIP** | harbor-server | — |
-| `sonar.luo.io.vn` | **Nginx EIP** | sonarqube-server | — |
-| `rancher.luo.io.vn` | **Nginx EIP** | rancher-server | — |
-| `kibana.luo.io.vn` | **Nginx EIP** | elk (Kibana :5601) | — |
+| `shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | shopnow-frontend (React, port 80) |
+| `api-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | api-gateway (Spring Cloud Gateway, port 5860) |
+| `discovery-server-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | shopnow-discovery-server-service (Eureka, port 8761) |
+| `keycloak-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | keycloak (port 8080) |
+| `product-service-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | product-service (port 5861) |
+| `cart-service-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | shopping-cart-service (port 5863) |
+| `user-service-shopnow.luo.io.vn` | **Kong EIP** | Ingress :30080 | user-service (port 5865) |
+| `gitlab.luo.io.vn` | **Nginx EIP** | — | gitlab-server |
+| `registry.luo.io.vn` | **Nginx EIP** | — | harbor-server |
+| `sonar.luo.io.vn` | **Nginx EIP** | — | sonarqube-server |
+| `rancher.luo.io.vn` | **Nginx EIP** | — | rancher-server |
+| `kibana.luo.io.vn` | **Nginx EIP** | — | elk (Kibana :5601) |
+
+## Luồng traffic 3 tầng proxy
+
+```
+Internet → domain.luo.io.vn
+              │
+   ┌──────────┴──────────┐
+   │ TẦNG 1: Kong (DMZ)  │  Bảo vệ: CORS, Rate Limit, IP Restrict,
+   │   Port 8000 (EIP)   │  Proxy Cache, Security Headers, Bot Detection
+   └──────────┬──────────┘
+              │ 1 upstream duy nhất → worker-ip:30080
+   ┌──────────┴──────────┐
+   │ TẦNG 2: Ingress     │  Route: đọc Host header → ClusterIP Service
+   │   NGINX (K8s)       │  shopnow.luo.io.vn → frontend:80
+   │   NodePort 30080    │  api-shopnow...     → api-gateway:5860
+   └──────────┬──────────┘
+              │
+   ┌──────────┴──────────┐
+   │ TẦNG 3: Spring      │  Route nội bộ theo path:
+   │   Cloud Gateway     │  /api/product → product-service
+   │   (K8s internal)    │  /api/cart    → shopping-cart-service
+   └─────────────────────┘  /api/user    → user-service
+
+Mỗi tầng KHÔNG thay thế nhau — chúng bổ trợ:
+  Kong     = bảo vệ + policies (security layer)
+  Ingress  = phân phối traffic theo hostname (routing layer)
+  Gateway  = route nội bộ giữa các microservice (service mesh layer)
+```
+
+---
+
+## ShopNow Tech Stack
+
+### Backend — Spring Boot Microservices (Java 17)
+
+| Thành phần | Công nghệ |
+|---|---|
+| Ngôn ngữ | Java 17, đóng gói WAR, chạy trên `openjdk:17-jdk-slim` |
+| Framework | Spring Boot 3.1.6/3.1.7 + Spring Cloud 2022.0.4 |
+| Build | Maven Wrapper (`mvnw`), không cần cài Maven |
+| API Gateway | Spring Cloud Gateway (WebFlux, reactive) |
+| Service Discovery | Netflix Eureka (`discovery-server:8761`) |
+| Config | Spring Cloud Config Server (native mode, classpath YAML) |
+| Database | Spring Data JPA + Hibernate → PostgreSQL |
+| Auth | Spring Security + OAuth2 Resource Server → JWT từ Keycloak |
+| API Docs | SpringDoc OpenAPI 2.3.0 (Swagger UI) |
+| Service-to-service | OpenFeign + RestTemplate, gọi qua Eureka service name |
+
+### Frontend — React SPA (JavaScript)
+
+| Thành phần | Công nghệ |
+|---|---|
+| Ngôn ngữ | JavaScript ES6+ (không TypeScript) |
+| Framework | React 18 (class + functional components) |
+| Build | Create React App (`react-scripts`) |
+| State | Redux (`store.js` + `reducers/`) |
+| HTTP Client | Axios (`services/` gọi API) |
+| Auth | JWT lưu `localStorage`, gắn Bearer token qua `AuthHeader.js` |
+| Routing | React Router |
+| Container | Multi-stage: `node:18-alpine` build → `nginx:stable-alpine` serve |
+| API endpoint | Build-time inject qua `.env`: `REACT_APP_BASE_API_URL` |
+
+### Docker Images
+
+```
+7 images → Harbor registry → K8s pull:
+  techcareer/discovery-server       (Eureka, port 8761)
+  techcareer/config-server          (Spring Cloud Config, port 5859)
+  techcareer/api-gateway            (Spring Cloud Gateway, port 5860)
+  techcareer/product-service        (Product CRUD, port 5861)
+  techcareer/shopping-cart-service  (Cart management, port 5863)
+  techcareer/user-service           (User + JWT auth, port 5865)
+  techcareer/shopnow-frontend       (React + Nginx, port 80)
+```
 
 ---
 
