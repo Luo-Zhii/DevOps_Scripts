@@ -69,7 +69,7 @@
         update_cache: yes
       tags: [docker, prereq]
 
-# --- elk: Elasticsearch + Logstash + Kibana ---
+# --- elk: Elasticsearch + Logstash + Kibana (Log Aggregation)
 - name: "[elk] Cài đặt ELK Stack (Elasticsearch + Logstash + Kibana)"
   hosts: elk
   become: yes
@@ -157,7 +157,40 @@
     - role: k8s-bootstrap
 
 # =========================================================================
-# PHASE 4: Storage HA Cluster
+# PHASE 4: GitOps + Metrics trên K8s (ArgoCD + Prometheus/Grafana) 🆕
+# =========================================================================
+# Chạy trên k8s-master-1 (node đầu tiên đã có kubectl configured):
+#   - Cài ArgoCD (GitOps controller, auto-sync K8s manifests từ GitLab)
+#   - Cài Prometheus + Grafana + AlertManager (Metrics & Alerting)
+#   - ELK vẫn chạy trên EC2 riêng để xử lý Log aggregation
+
+- name: "[K8s] Deploy ArgoCD + Monitoring Stack trên Kubernetes"
+  hosts: k8s_masters[0]
+  become: no
+  tags: [argocd, monitoring, post-deploy]
+  tasks:
+    - name: Deploy ArgoCD — GitOps Controller (auto-sync từ GitLab)
+      ansible.builtin.shell: |
+        cd /home/ubuntu/DevOps_Scripts/Shopnow_k8s/argocd
+        bash install-argocd.sh
+      args:
+        executable: /bin/bash
+      register: argocd_result
+      changed_when: "'created' in argocd_result.stdout or 'configured' in argocd_result.stdout"
+      tags: [argocd]
+
+    - name: Deploy Monitoring Stack — Prometheus + Grafana + AlertManager
+      ansible.builtin.shell: |
+        cd /home/ubuntu/DevOps_Scripts/Shopnow_k8s/monitoring
+        bash install-monitoring.sh
+      args:
+        executable: /bin/bash
+      register: monitoring_result
+      changed_when: "'deployed' in monitoring_result.stdout or 'created' in monitoring_result.stdout"
+      tags: [monitoring]
+
+# =========================================================================
+# PHASE 5: Storage HA Cluster
 # =========================================================================
 
 # --- storage-master-1, storage-master-2, storage-master-3 ---

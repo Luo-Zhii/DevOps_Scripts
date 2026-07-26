@@ -4,7 +4,7 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
 
 ---
 
-## Kiến trúc tổng quan (16 EC2 Instances)
+## Kiến trúc tổng quan (16 EC2 Instances) + GitOps & Monitoring trên K8s
 
 > **Diagram:** [assets/architecture.drawio](assets/architecture.drawio) — mở bằng [draw.io](https://app.diagrams.net) hoặc VS Code plugin `hediet.vscode-drawio`
 
@@ -35,7 +35,7 @@ Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible 
   │  PLATFORM TOOLS (6):             │
   │   gitlab-server   harbor-server  │
   │   sonarqube-server rancher 🆕    │
-  │   dev-server       elk           │
+  │   dev-server       elk             │
   ├──────────────────────────────────┤
   │  K8s CLUSTER (3 nodes):          │
   │   k8s-master-1,2,3               │
@@ -146,6 +146,19 @@ DevOps_Scripts/
         ├── 12-shopping-cart-service.yaml  # Cart Service + Service
         ├── 13-user-service.yaml      # User Service + Service
         └── 14-frontend.yaml          # React Frontend + NodePort 30002
+
+    ├── argocd/                     🆕   # ArgoCD GitOps Configuration
+    │   ├── install-argocd.sh            # Script cài đặt ArgoCD lên K8s
+    │   ├── setup-gitlab-repo.sh         # Kết nối ArgoCD với GitLab repo
+    │   ├── argocd-application.yaml      # Application CRD (auto-sync ShopNow)
+    │   └── argocd-ingress.yaml          # Ingress route cho ArgoCD UI
+
+    └── monitoring/                 🆕   # Prometheus + Grafana (Metrics, bên cạnh ELK)
+        ├── install-monitoring.sh        # Script cài đặt kube-prometheus-stack
+        ├── monitoring-values.yaml       # Helm values (Prometheus + Grafana config)
+        ├── servicemonitor-shopnow.yaml  # ServiceMonitors cho Spring Boot metrics
+        ├── grafana-dashboards.yaml      # Custom Grafana dashboards
+        └── monitoring-ingress.yaml      # Ingress routes (grafana, prometheus, alerts)
 ```
 
 ---
@@ -284,7 +297,7 @@ resource "aws_instance" "this" {
 | | sonarqube-server | t3.medium | 12 GB |
 | | rancher-server | t3.large | 30 GB |
 | | dev-server | t3.large | 18 GB |
-| | elk | t3.large | 30 GB |
+| elk | t3.large | 30 GB |
 | | k8s-master-1 🆕 | t3.medium | 20 GB |
 | | k8s-master-2 🆕 | t3.medium | 20 GB |
 | | k8s-master-3 🆕 | t3.medium | 20 GB |
@@ -328,7 +341,7 @@ PHASE 0 ─ [ALL 16 servers]
 
 PHASE 1 ─ [Public DMZ — 3 servers]
           ├── load-balancer-server: ufw + Nginx reverse proxy
-          │     Upstreams: gitlab, harbor, sonarqube, rancher, kibana, shopnow-frontend
+          │     Upstreams: gitlab, harbor, sonarqube, rancher, kibana, grafana, argocd, shopnow-frontend
           ├── teleport:             ufw (chuẩn bị Teleport)
           └── kong-gateway:         ufw + Kong API Gateway + PostgreSQL
                 Routes: gitlab, harbor, sonarqube, rancher + ShopNow (6 routes)
@@ -344,7 +357,12 @@ PHASE 3 ─ [K8s Cluster — 3 servers]
               + k8s-bootstrap role (containerd + kubeadm init/join + Calico CNI)
               (3 node = control-plane + workload, bỏ taint, disk 20GB)
 
-PHASE 4 ─ [Storage Cluster — 3 servers]
+PHASE 4 ─ [GitOps & Monitoring on K8s] 🆕
+          └── k8s_masters[0]:       Deploy ArgoCD + Prometheus/Grafana
+              + install-argocd.sh (GitOps auto-sync từ GitLab)
+              + install-monitoring.sh (Prometheus + Grafana + AlertManager)
+
+PHASE 5 ─ [Storage Cluster — 3 servers]
           └── storage_nodes:        GlusterFS replicated volume
               (serial: 1 — từng node một)
 ```
@@ -418,7 +436,7 @@ Server quan trọng nhất — toàn bộ traffic từ internet đi qua đây.
 | 7 | (Comment sẵn) Certbot block — bỏ comment khi DNS đã trỏ |
 
 **Template `nginx.conf.j2` tạo ra:**
-- 5 upstream blocks (gitlab, harbor, sonarqube, rancher, kibana)
+- 6 upstream blocks (gitlab, harbor, sonarqube, rancher, kibana, grafana, argocd)
 - 5 server blocks (mỗi domain → upstream tương ứng)
 - WebSocket support (cần cho Rancher, GitLab Web IDE)
 - JSON log format (để ELK parse)
@@ -453,6 +471,7 @@ Kong KHÔNG chỉ pass-through — mỗi route có plugin bảo vệ riêng:
 > **Tại sao không bật JWT Auth ở Kong?** ShopNow đã có Spring Security + OAuth2 Resource Server validate JWT từ Keycloak ở tầng Spring Cloud Gateway rồi — bật thêm ở Kong sẽ bị trùng.
 
 ### Role `elk/` → Elasticsearch + Logstash + Kibana
+
 
 | Bước | Hành động |
 |---|---|
@@ -524,6 +543,17 @@ cd k8s-manifests
 ./deploy.sh
 # → 16 steps: namespace → secrets → PVs → 8 app components → Ingress
 
+# ─── Bước 5b: Cài ArgoCD (GitOps auto-sync) 🆕 ──────────────────
+cd ../argocd
+./install-argocd.sh
+GITLAB_USERNAME=root GITLAB_TOKEN=glpat-xxx ./setup-gitlab-repo.sh
+# → ArgoCD watches k8s-manifests/ → auto-sync on commit
+
+# ─── Bước 5c: Cài Prometheus + Grafana (Metrics, bên cạnh ELK) 🆕 ─────────────
+cd ../monitoring
+./install-monitoring.sh
+# → Prometheus scrape metrics + Grafana dashboards + AlertManager
+
 # ─── Bước 6: Cập nhật Kong config ───────────────────────────────
 cd ../../iac/ansible
 ansible-playbook site.yml --limit kong_gateway --tags kong
@@ -565,6 +595,8 @@ Tất cả domain dùng chung base `luo.io.vn`. DNS: trỏ tất cả domain Sho
 | `sonar.luo.io.vn` | **Nginx EIP** | — | sonarqube-server |
 | `rancher.luo.io.vn` | **Nginx EIP** | — | rancher-server |
 | `kibana.luo.io.vn` | **Nginx EIP** | — | elk (Kibana :5601) |
+| `grafana.luo.io.vn` | **Nginx EIP** | Ingress :30080 | Grafana (monitoring ns, :3000) |
+| `argocd.luo.io.vn` | **Nginx EIP** | NodePort :30082 | ArgoCD Server (argocd ns, :443) |
 
 ## Luồng traffic 3 tầng proxy
 
@@ -592,6 +624,112 @@ Mỗi tầng KHÔNG thay thế nhau — chúng bổ trợ:
   Kong     = bảo vệ + policies (security layer)
   Ingress  = phân phối traffic theo hostname (routing layer)
   Gateway  = route nội bộ giữa các microservice (service mesh layer)
+```
+
+---
+
+## 🆕 GitOps với ArgoCD
+
+ArgoCD được triển khai trong K8s cluster (namespace: `argocd`) để tự động đồng bộ
+K8s manifests từ GitLab self-hosted repository.
+
+### Luồng GitOps
+
+```
+Developer push code → GitLab repo (main branch)
+                           │
+                    ┌──────▼──────┐
+                    │   ArgoCD    │  Watch thư mục Shopnow_k8s/k8s-manifests/
+                    │ (argocd ns) │  mỗi 3 phút (polling)
+                    └──────┬──────┘
+                           │ Phát hiện thay đổi → Auto Sync
+                    ┌──────▼──────┐
+                    │  Kubernetes │  kubectl apply toàn bộ manifests
+                    │   Cluster   │  Prune + SelfHeal enabled
+                    └─────────────┘
+```
+
+### Cài đặt
+
+```bash
+# 1. Cài ArgoCD lên K8s
+cd Shopnow_k8s/argocd
+./install-argocd.sh
+
+# 2. Kết nối GitLab repo
+GITLAB_USERNAME=root GITLAB_TOKEN=glpat-xxx ./setup-gitlab-repo.sh
+
+# 3. ArgoCD sẽ tự động sync từ GitLab
+# Mỗi khi commit lên main, manifests được auto-apply lên cluster
+```
+
+### Tính năng
+
+| Tính năng | Mô tả |
+|---|---|
+| **Auto-Sync** | Tự động sync khi phát hiện thay đổi trong Git |
+| **Self-Heal** | Tự sửa nếu ai đó thay đổi resource = tay trên K8s |
+| **Prune** | Tự xóa resources không còn trong Git |
+| **Sync Status** | Hiển thị trạng thái sync (Synced/OutOfSync) qua UI |
+| **Rollback** | Dễ dàng rollback về version cũ qua Git history |
+
+---
+
+## 🆕 Monitoring — Prometheus + Grafana (bên cạnh ELK)
+
+**Prometheus + Grafana** được triển khai trên Kubernetes (namespace: `monitoring`)
+để thu thập **metrics & alerting**, bổ sung cho **ELK Stack** (vẫn chạy trên EC2) 
+để xử lý **log aggregation**.
+
+### Thành phần
+
+| Thành phần | Port | Mục đích |
+|---|---|---|
+| **Prometheus** | :9090 | Thu thập & lưu trữ metrics (TSDB) |
+| **Grafana** | :3000 | Dashboard visualization (thay Kibana) |
+| **AlertManager** | :9093 | Cảnh báo qua Email/Slack/Telegram |
+
+### Cài đặt
+
+```bash
+cd Shopnow_k8s/monitoring
+./install-monitoring.sh
+# → Cài Prometheus Operator + Grafana + AlertManager + ServiceMonitors
+```
+
+### ServiceMonitors — Spring Boot Metrics
+
+Prometheus tự động scrape metrics từ các Spring Boot service qua endpoint `/actuator/prometheus`:
+
+| Service | Metrics |
+|---|---|
+| API Gateway | HTTP requests, JVM memory, GC, threads |
+| Product Service | HTTP requests, DB connections (HikariCP), JVM |
+| Cart Service | HTTP requests, DB connections, JVM |
+| User Service | HTTP requests, JWT auth metrics, DB connections, JVM |
+| Discovery Server | Eureka registry stats, JVM |
+| Config Server | Config refresh events, JVM |
+| Keycloak | Auth sessions, token stats, JVM |
+
+### Grafana Dashboards
+
+3 dashboards được deploy tự động:
+1. **ShopNow Overview** — Tổng quan HTTP requests, JVM memory, error rate
+2. **Spring Boot Statistics** — JVM heap, GC pause, threads, DB pool
+3. **K8s Pod Resources** — CPU, Memory, Network cho từng pod
+
+### Observability Stack — ELK + Prometheus/Grafana (cùng tồn tại)
+
+| | ELK (Log Aggregation) | Prometheus + Grafana (Metrics) |
+|---|---|---|
+| **Dữ liệu** | Logs (text) — search, debug, audit | Metrics (số) — performance, alerting |
+| **Triển khai** | EC2 t3.large 30GB (Ansible) | K8s namespace `monitoring` (Helm) |
+| **Truy vấn** | Full-text search (Kibana/KQL) | PromQL + Grafana dashboards |
+| **Dùng khi** | "Tìm `NullPointerException` trong 24h qua" | "CPU product-service đang > 80%" |
+| **Cảnh báo** | Qua Logstash rules (manual) | AlertManager (PromQL rules + Email/Slack) |
+| **Dữ liệu nguồn** | Filebeat → Logstash → Elasticsearch | Prometheus scrape Spring Boot Actuator |
+| **Retention** | 7 ngày (logs cũ tự xóa) | 15 ngày metrics (20GB PV) |
+
 ```
 
 ---
