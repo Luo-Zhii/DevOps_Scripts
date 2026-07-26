@@ -1,12 +1,47 @@
 # DevOps Platform — Infrastructure as Code
 
-Tài liệu giải thích toàn bộ cấu trúc thư mục Terraform & Ansible cho hệ thống **Self-hosted Cloud-Native DevOps Platform** trên AWS (`ap-southeast-1`).
+Tài liệu giải thích toàn bộ cấu trúc Terraform & Ansible cho hệ thống **Self-hosted Cloud-Native DevOps Platform** trên AWS (`ap-southeast-1`).
 
----
+## 🏗️ Kiến trúc tổng quan
 
-## Kiến trúc tổng quan (16 EC2 Instances) + GitOps & Monitoring trên K8s
+![DevOps Platform Architecture](assets/image.png)
 
-> **Diagram:** [assets/architecture.drawio](assets/architecture.drawio) — mở bằng [draw.io](https://app.diagrams.net) hoặc VS Code plugin `hediet.vscode-drawio`
+> **Diagram có thể chỉnh sửa:** [assets/architecture.drawio](assets/architecture.drawio) — mở bằng [draw.io](https://app.diagrams.net) hoặc VS Code plugin `hediet.vscode-drawio`
+
+### 🔗 Repositories
+
+| Repo | Mô tả | Link |
+|---|---|---|
+| **devops-scripts** | Infrastructure as Code — Terraform + Ansible provision toàn bộ hạ tầng AWS + bootstrap K8s | *(repo này)* |
+| **shop-app** | Source code ứng dụng ShopNow — Java Spring Boot Microservices + React Frontend | [github.com/Luo-Zhii/shop-app](https://github.com/Luo-Zhii/shop-app) |
+| **shop-gitops** | Kubernetes Manifests (Kustomize) + ArgoCD + Prometheus/Grafana — GitOps auto-deploy | [github.com/Luo-Zhii/shop-gitops](https://github.com/Luo-Zhii/shop-gitops) |
+
+### 📦 Luồng GitOps (3 repos)
+
+```
+Developer push code → shop-app (GitHub)
+                        │ GitLab CI/CD trigger
+                        ▼
+              ┌─────────────────┐
+              │  dev-server     │  GitLab Runner thực thi pipeline
+              │  (CI/CD Runner) │
+              └───┬───────┬─────┘
+                  │       │
+         SAST scan│       │ docker build & push
+                  ▼       ▼
+            SonarQube   Harbor Registry
+                              │
+          ┌───────────────────┘
+          ▼
+   CI job update image tag → shop-gitops (GitHub)
+                                │
+                         ArgoCD Watch (poll 3min)
+                                │
+                         kubectl apply -k overlays/production
+                                │
+                                ▼
+                         Kubernetes Cluster
+```
 
 ```
                             Internet
